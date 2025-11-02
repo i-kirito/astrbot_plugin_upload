@@ -58,6 +58,13 @@
     "hint": "是否允许生成的插件包含外部依赖",
     "default": false
   },
+  "install_method": {
+    "description": "插件安装方式",
+    "type": "string",
+    "hint": "选择通过AstrBot API安装，或直接将文件放入本地插件目录。选择API需要正确配置用户名与MD5密码。",
+    "options": ["auto", "api", "file"],
+    "default": "auto"
+  },
   "astrbot_url": {
     "description": "AstrBot API地址",
     "type": "string",

@@ -34,7 +34,7 @@ class CodeMagePlugin(Star):
         self.config = config
         self.llm_handler = LLMHandler(context, config)
         self.installer = PluginInstaller(config)
-        self.plugin_generator = PluginGenerator(context, config, self.installer)
+        self.plugin_generator = PluginGenerator(context, config, self.installer, star=self)
         self.directory_detector = DirectoryDetector()
 
         # 初始化logger
@@ -60,18 +60,41 @@ class CodeMagePlugin(Star):
         if not self.config.get("admin_only", True):
             return True
 
-        # 获取发送者ID
-        sender_id = event.get_sender_id()
-
-        # 尝试从context获取管理员列表
+        # 优先使用 AstrBot 事件自身提供的管理员判定
         try:
-            astrbot_config = self.context.get_config()
-            admins = astrbot_config.get("admins", [])
-            return sender_id in admins
+            # 标准方法：event.is_admin()
+            if hasattr(event, "is_admin"):
+                is_admin_attr = getattr(event, "is_admin")
+                if callable(is_admin_attr):
+                    if is_admin_attr():
+                        return True
+                else:
+                    # 某些实现可能将其作为布尔属性暴露
+                    if bool(is_admin_attr):
+                        return True
+ 
+            # 兼容属性：event.role == "admin"
+            role = getattr(event, "role", None)
+            if isinstance(role, str) and role.lower() == "admin":
+                return True
         except Exception as e:
-            self.logger.warning(f"无法检查管理员权限: {str(e)}")
-            # 如果无法检查，默认允许（防止插件不可用）
-            return True
+            self.logger.warning(f"检查管理员权限时发生错误: {str(e)}")
+
+        # 兼容性兜底：从 AstrBot 配置里匹配可能的管理员 ID 列表
+        try:
+            sender_id = str(event.get_sender_id())
+            astrbot_config = self.context.get_config()
+            for key in ("admins", "admin_ids", "admin_list", "superusers", "super_users"):
+                ids = astrbot_config.get(key, [])
+                if isinstance(ids, (list, tuple, set)):
+                    if sender_id in {str(i) for i in ids}:
+                        return True
+        except Exception:
+            # 忽略兜底检查中的异常
+            pass
+ 
+        # 默认拒绝
+        return False
 
     @filter.command("生成插件", alias={"create_plugin", "new_plugin"})
     async def generate_plugin_command(
@@ -190,7 +213,7 @@ class CodeMagePlugin(Star):
             self.logger.error(f"MD5转换失败: {str(e)}")
             yield event.plain_result(f"MD5转换失败：{str(e)}")
 
-    @filter.command("同意生成", alias={"同意", "approve", "confirm"})
+    @filter.command("同意生成", alias={"approve", "confirm"})
     async def approve_generation(self, event: AstrMessageEvent, feedback: str = ""):
         """同意插件生成指令
         
@@ -211,7 +234,7 @@ class CodeMagePlugin(Star):
         # 继续插件生成流程
         try:
             yield event.plain_result("正在继续插件生成流程...")
-            result = await self.plugin_generator.continue_plugin_generation(True, feedback)
+            result = await self.plugin_generator.continue_plugin_generation(True, feedback, event)
             
             if result["success"]:
                 message = f"插件生成成功！\n插件名称：{result['plugin_name']}\n插件路径：{result['plugin_path']}"
@@ -229,7 +252,7 @@ class CodeMagePlugin(Star):
             self.logger.error(f"同意插件生成过程中发生错误: {str(e)}")
             yield event.plain_result(f"插件生成失败：{str(e)}")
 
-    @filter.command("拒绝生成", alias={"拒绝", "reject", "cancel"})
+    @filter.command("拒绝生成", alias={"reject", "cancel"})
     async def reject_generation(self, event: AstrMessageEvent):
         """拒绝插件生成指令
         
@@ -249,11 +272,58 @@ class CodeMagePlugin(Star):
             
         # 取消插件生成流程
         try:
-            result = await self.plugin_generator.continue_plugin_generation(False)
-            yield event.plain_result("已取消插件生成")
+            result = await self.plugin_generator.continue_plugin_generation(False, event=event)
+            yield event.plain_result("已完全停止插件生成")
         except Exception as e:
             self.logger.error(f"拒绝插件生成过程中发生错误: {str(e)}")
-            yield event.plain_result(f"取消插件生成失败：{str(e)}")
+            yield event.plain_result(f"停止插件生成失败：{str(e)}")
+
+    @filter.command("插件内容修改", alias={"modify_plugin", "modify"})
+    async def modify_plugin_content(self, event: AstrMessageEvent, feedback: str = "", modification_type: str = ""):
+        """选择性修改插件内容指令
+        
+        Args:
+            feedback(string): 修改内容描述
+            modification_type(string): 修改类型（配置文件/文档/元数据/全部），默认为"全部"
+        """
+        # 检查管理员权限
+        if not self._check_admin_permission(event):
+            yield event.plain_result("⚠️ 仅管理员可以使用此功能")
+            return
+            
+        # 获取待确认的任务
+        pending = self.plugin_generator.get_pending_generation()
+        if not pending["active"]:
+            yield event.plain_result("当前没有待确认的插件生成任务")
+            return
+        
+        # 默认修改类型为"全部"
+        if not modification_type or modification_type.strip() == "":
+            modification_type = "全部"
+        
+        # 标准化修改类型
+        modification_type = modification_type.strip()
+        valid_types = ["配置文件", "文档", "元数据", "全部"]
+        if modification_type not in valid_types:
+            yield event.plain_result(f"不支持的修改类型：{modification_type}\n支持的类型：配置文件、文档、元数据、全部")
+            return
+        
+        if not feedback:
+            yield event.plain_result("请提供修改内容，例如：/插件内容修改 增加一个用户名配置项 配置文件")
+            return
+            
+        # 执行修改
+        try:
+            yield event.plain_result(f"正在修改{modification_type}...")
+            result = await self.plugin_generator.modify_plugin_content(modification_type, feedback, event)
+            
+            if result["success"]:
+                pass  # 消息已在modify_plugin_content方法中发送
+            else:
+                yield event.plain_result(f"修改失败：{result.get('error', '未知错误')}")
+        except Exception as e:
+            self.logger.error(f"修改插件内容过程中发生错误: {str(e)}")
+            yield event.plain_result(f"修改失败：{str(e)}")
 
     async def terminate(self):
         """插件卸载时调用"""

@@ -69,16 +69,33 @@ class PluginInstaller:
                 zip_path = tmp_file.name
                 
             # 打包插件目录
+            plugin_root_name = os.path.basename(os.path.normpath(plugin_dir))
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                plugin_dir_name = os.path.basename(plugin_dir)
+                # 显式写入顶层插件目录，确保ZIP中存在目录项，避免某些安装器误判为文件路径
+                if plugin_root_name:
+                    try:
+                        dir_info = zipfile.ZipInfo(f"{plugin_root_name}/")
+                        # 设置目录属性（在大多数解压器上不是必须，但更稳妥）
+                        dir_info.create_system = 3  # 标记为Unix以使 external_attr 生效
+                        dir_info.external_attr = 0o40775 << 16  # drwxrwxr-x
+                        zipf.writestr(dir_info, b"")
+                    except Exception:
+                        # 兼容性兜底：至少写入一个以/结尾的空目录名
+                        zipf.writestr(f"{plugin_root_name}/", b"")
+                
                 for root, dirs, files in os.walk(plugin_dir):
                     for file in files:
                         file_path = os.path.join(root, file)
-                        # 修复：确保正确的相对路径计算，使插件文件在zip根目录的子目录中
-                        arcname = os.path.join(plugin_dir_name, os.path.relpath(file_path, plugin_dir))
+                        # AstrBot 需要 zip 顶层保留插件目录（plugin_name/main.py 等）
+                        relative_path = os.path.relpath(file_path, plugin_dir).replace(os.sep, '/')
+                        if plugin_root_name:
+                            arcname = f"{plugin_root_name}/{relative_path}"
+                        else:
+                            arcname = relative_path
                         zipf.write(file_path, arcname)
                         
-            self.logger.info(f"插件打包成功: {zip_path}")
+            structure_hint = f"{plugin_root_name}/..." if plugin_root_name else "根目录"
+            self.logger.info(f"插件打包成功: {zip_path}，ZIP结构: {structure_hint}")
             return zip_path
             
         except Exception as e:

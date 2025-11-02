@@ -485,7 +485,7 @@ class LLMHandler:
     "editor_language": "json",
     "editor_theme": "vs-light"
   }}
-}
+}}
 ```
 
 要求：
@@ -529,6 +529,7 @@ class LLMHandler:
         Returns:
             str: 修改后的配置文件内容
         """
+        dev_docs = self._get_dev_docs()
         system_prompt = f"""你是一个专业的AstrBot插件配置修改助手。请根据用户反馈修改插件的配置文件。
         
 请严格遵守以下要求：
