@@ -734,7 +734,15 @@ class PluginGenerator:
                 "error": "没有待确认的插件生成任务"
             }
             
-
+        # 获取当前任务信息
+        metadata = self.pending_generation["metadata"]
+        markdown_doc = self.pending_generation["markdown"]
+        config_schema = self.pending_generation.get("config_schema", "")
+        description = self.pending_generation["description"]
+        if event is None:
+            event = self.pending_generation["event"]
+        else:
+            self.pending_generation["event"] = event
         
         if not approved:
             await event.send(event.plain_result("用户拒绝，插件生成已完全停止"))
