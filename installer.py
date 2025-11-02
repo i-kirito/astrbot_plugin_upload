@@ -1,0 +1,239 @@
+"""
+CodeMage插件安装器模块
+负责通过AstrBot API安装生成的插件
+"""
+
+import os
+import zipfile
+import tempfile
+from typing import Dict, Any, Optional
+from astrbot.api import logger
+from astrbot.api import AstrBotConfig
+
+
+class PluginInstaller:
+    """插件安装器类"""
+    
+    def __init__(self, config: AstrBotConfig):
+        self.config = config
+        self.logger = logger
+        self.astrbot_url = config.get("astrbot_url", "http://localhost:6185")
+        self.username = config.get("api_username", "astrbot")
+        # 配置文件中存储的是MD5加密后的密码
+        self.password_md5 = config.get("api_password_md5", "")
+        self.token = None
+        
+    async def login(self) -> bool:
+        """登录AstrBot并获取token
+        
+        Returns:
+            bool: 是否登录成功
+        """
+        try:
+            import aiohttp
+            
+            url = f"{self.astrbot_url}/api/auth/login"
+            payload = {
+                "username": self.username,
+                "password": self.password_md5
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload) as resp:
+                    result = await resp.json()
+                    
+                    if result.get("status") == "ok":
+                        self.token = result.get("data", {}).get("token")
+                        self.logger.info(f"✅ AstrBot API登录成功")
+                        return True
+                    else:
+                        self.logger.error(f"❌ AstrBot API登录失败: {result.get('message')}")
+                        return False
+                        
+        except Exception as e:
+            self.logger.error(f"❌ AstrBot API登录请求失败: {str(e)}")
+            return False
+            
+    async def create_plugin_zip(self, plugin_dir: str) -> Optional[str]:
+        """将插件目录打包成zip文件
+        
+        Args:
+            plugin_dir: 插件目录路径
+            
+        Returns:
+            Optional[str]: zip文件路径，失败返回None
+        """
+        try:
+            # 创建临时zip文件
+            with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+                zip_path = tmp_file.name
+                
+            # 打包插件目录
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                plugin_dir_name = os.path.basename(plugin_dir)
+                for root, dirs, files in os.walk(plugin_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # 修复：确保正确的相对路径计算，使插件文件在zip根目录的子目录中
+                        arcname = os.path.join(plugin_dir_name, os.path.relpath(file_path, plugin_dir))
+                        zipf.write(file_path, arcname)
+                        
+            self.logger.info(f"插件打包成功: {zip_path}")
+            return zip_path
+            
+        except Exception as e:
+            self.logger.error(f"插件打包失败: {str(e)}")
+            return None
+            
+    async def install_plugin(self, zip_path: str) -> Dict[str, Any]:
+        """通过API安装插件
+        
+        Args:
+            zip_path: 插件zip文件路径
+            
+        Returns:
+            Dict[str, Any]: 安装结果
+        """
+        if not self.token:
+            if not await self.login():
+                return {
+                    "success": False,
+                    "error": "API登录失败"
+                }
+                
+        try:
+            import aiohttp
+            
+            url = f"{self.astrbot_url}/api/plugin/install-upload"
+            
+            if not os.path.exists(zip_path):
+                return {
+                    "success": False,
+                    "error": f"文件不存在: {zip_path}"
+                }
+                
+            self.logger.info(f"正在通过API安装插件: {zip_path}")
+            
+            async with aiohttp.ClientSession() as session:
+                with open(zip_path, 'rb') as f:
+                    data = aiohttp.FormData()
+                    data.add_field('file', 
+                                 f,
+                                 filename=os.path.basename(zip_path),
+                                 content_type='application/zip')
+                    
+                    headers = {
+                        "Authorization": f"Bearer {self.token}"
+                    }
+                    
+                    async with session.post(url, data=data, headers=headers) as resp:
+                        result = await resp.json()
+                        
+                        if result.get("status") == "ok":
+                            self.logger.info(f"✅ 插件安装成功: {result.get('message')}")
+                            return {
+                                "success": True,
+                                "plugin_name": result.get('data', {}).get('name', 'Unknown'),
+                                "plugin_repo": result.get('data', {}).get('repo', 'N/A')
+                            }
+                        else:
+                            self.logger.error(f"❌ 插件安装失败: {result.get('message')}")
+                            return {
+                                "success": False,
+                                "error": result.get('message', 'Unknown error')
+                            }
+                            
+        except Exception as e:
+            self.logger.error(f"❌ 插件安装请求失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+            
+    async def check_plugin_install_status(self, plugin_name: str) -> Dict[str, Any]:
+        """检查插件安装状态和错误日志
+        
+        Args:
+            plugin_name: 插件名称
+            
+        Returns:
+            Dict[str, Any]: 插件状态信息
+        """
+        if not self.token:
+            if not await self.login():
+                return {
+                    "success": False,
+                    "error": "API登录失败"
+                }
+                
+        try:
+            import aiohttp
+            import asyncio
+            
+            # 等待插件加载
+            await asyncio.sleep(3)
+            
+            # 获取日志历史
+            url = f"{self.astrbot_url}/api/log-history?limit=200"
+            headers = {
+                "Authorization": f"Bearer {self.token}"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    result = await resp.json()
+                    
+                    if result.get("status") == "ok":
+                        logs = result.get('data', {}).get('logs', [])
+                        
+                        # 查找插件相关的错误和警告
+                        error_logs = []
+                        warning_logs = []
+                        
+                        for log_entry in logs:
+                            if not isinstance(log_entry, dict):
+                                continue
+                                
+                            data = log_entry.get('data', {})
+                            if isinstance(data, str):
+                                message = data
+                                level = log_entry.get('level', '').upper()
+                                module = ''
+                            else:
+                                level = data.get('level', log_entry.get('level', '')).upper()
+                                message = data.get('message', '')
+                                module = data.get('module', data.get('name', ''))
+                                
+                            # 检查是否与插件相关
+                            is_plugin_related = (
+                                'plugin' in module.lower() or 
+                                'star' in module.lower() or
+                                plugin_name.lower() in message.lower() or
+                                plugin_name.lower() in module.lower()
+                            )
+                            
+                            if is_plugin_related:
+                                if level in ['ERROR', 'ERRO'] or 'error' in message.lower() or '失败' in message:
+                                    error_logs.append(message)
+                                elif level == 'WARN' or 'warn' in message.lower():
+                                    warning_logs.append(message)
+                                    
+                        return {
+                            "success": True,
+                            "has_errors": len(error_logs) > 0,
+                            "has_warnings": len(warning_logs) > 0,
+                            "error_logs": error_logs[:5],  # 最多返回5条
+                            "warning_logs": warning_logs[:5]
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"获取日志失败: {result.get('message')}"
+                        }
+                        
+        except Exception as e:
+            self.logger.error(f"检查插件状态失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
