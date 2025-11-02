@@ -138,7 +138,12 @@ class CodeMagePlugin(Star):
                         )
                 yield event.plain_result(message)
             else:
-                yield event.plain_result(f"插件生成失败：{result['error']}")
+                # 检查是否是等待用户确认的情况
+                if result.get("pending_confirmation"):
+                    # 不显示"插件生成失败"消息，因为这是正常的等待确认流程
+                    pass
+                else:
+                    yield event.plain_result(f"插件生成失败：{result['error']}")
 
         except Exception as e:
             self.logger.error(f"插件生成过程中发生错误: {str(e)}")
@@ -248,6 +253,7 @@ class CodeMagePlugin(Star):
             else:
                 if not result.get("pending_confirmation"):
                     yield event.plain_result(f"插件生成失败：{result['error']}")
+                # 如果是pending_confirmation状态，不显示错误消息，因为这是正常的等待确认流程
         except Exception as e:
             self.logger.error(f"同意插件生成过程中发生错误: {str(e)}")
             yield event.plain_result(f"插件生成失败：{str(e)}")
