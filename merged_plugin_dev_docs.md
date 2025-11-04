@@ -6,65 +6,6 @@
 outline: deep
 ---
 
-# 插件开发
-
-几行代码开发一个插件！
-
-> [!TIP]
->
-> - 推荐使用 VSCode 开发。
-> - 需要有一定的 Python 基础。
-> - 需要有一定的 Git 使用经验。
->
-> 欢迎加群 `975206796` 讨论！！
-
-## 开发环境准备
-
-### 获取插件模板
-
-1. 打开 AstrBot 插件模板: [helloworld](https://github.com/Soulter/helloworld)
-2. 点击右上角的 `Use this template`
-3. 然后点击 `Create new repository`。
-4. 在 `Repository name` 处填写您的插件名。插件名格式:
-   - 推荐以 `astrbot_plugin_` 开头；
-   - 不能包含空格；
-   - 保持全部字母小写；
-   - 尽量简短。
-
-![](../../source/images/plugin/image.png)
-
-5. 点击右下角的 `Create repository`。
-
-### Clone 插件和 AstrBot 项目
-
-首先，Clone AstrBot 项目本体到本地。
-
-```bash
-git clone https://github.com/AstrBotDevs/AstrBot
-mkdir -p AstrBot/data/plugins
-cd AstrBot/data/plugins
-git clone 插件仓库地址
-```
-
-然后，使用 `VSCode` 打开 `AstrBot` 项目。找到 `data/plugins/<你的插件名字>` 目录。
-
-更新 `metadata.yaml` 文件，填写插件的元数据信息。
-
-> [!NOTE]
-> AstrBot 插件市场的信息展示依赖于 `metadata.yaml` 文件。
-
-### 调试插件
-
-AstrBot 采用在运行时注入插件的机制。因此，在调试插件时，需要启动 AstrBot 本体。
-
-插件的代码修改后，可以在 AstrBot WebUI 的插件管理处找到自己的插件，点击 `管理`，点击 `重载插件` 即可。
-
-### 插件依赖管理
-
-目前 AstrBot 对插件的依赖管理使用 `pip` 自带的 `requirements.txt` 文件。如果你的插件需要依赖第三方库，请务必在插件目录下创建 `requirements.txt` 文件并写入所使用的依赖库，以防止用户在安装你的插件时出现依赖未找到(Module Not Found)的问题。
-
-> `requirements.txt` 的完整格式可以参考 [pip 官方文档](https://pip.pypa.io/en/stable/reference/requirements-file-format/)。
-
 ## 提要
 
 ### 最小实例
@@ -1350,27 +1291,3 @@ class MyPlugin(Star):
 启动后，可以看到正常工作：
 
 ![](../source/images/plugin-platform-adapter/QQ_1738156166893.png)
-
-
-有任何疑问欢迎加群询问~
-
-## 插件发布
-
-# 插件发布
-
-请在 https://github.com/AstrBotDevs/AstrBot_Plugins_Collection 中发布插件，合并后你的插件会在所有 AstrBot 管理面板的插件市场显示。
-
-
-## 发布流程
-
-1. https://github.com/AstrBotDevs/AstrBot_Plugins_Collection/issues/new?template=Blank+issue 创建 Issue
-
-2. 填写内容：
-
-![](../source/images/plugin-publish/image.png)
-
-3. 提交 Issue
-
-
-
-或者通过 PR 提交插件。

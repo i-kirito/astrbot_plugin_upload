@@ -114,7 +114,7 @@ class LLMHandler:
 - 良好的错误处理，避免插件崩溃
 
 ## 开发文档：
-{dev_docs[:3000]}...
+{dev_docs}...
 
 请按照以下格式返回，包含在```json和```之间：
 
@@ -181,7 +181,7 @@ class LLMHandler:
        - dependencies: 字符串数组（可为空数组）
 3. 严格遵守反向提示词要求：{self.negative_prompt}
 4. 插件的功能设计必须符合以下开发文档：
-{dev_docs[:2000]}...
+{dev_docs}...
 """
 
         prompt = f"根据以下描述生成AstrBot插件的元数据：\n\n{description}"
@@ -225,7 +225,7 @@ class LLMHandler:
 3. 文档内容必须与元数据描述一致，并符合反向提示词要求：{self.negative_prompt}
 4. 插件流程和使用方法部分必须提供足够详细的信息，确保用户能够充分了解插件的工作原理和使用方式
 5. 请参考以下开发文档，确保文档结构和术语符合规范：
-{dev_docs[:2000]}...
+{dev_docs}...
 """
 
         prompt = f"根据以下插件信息生成Markdown文档：\n\n元数据：\n{metadata_str}\n\n用户描述：\n{description}"
@@ -305,7 +305,7 @@ class LLMHandler:
             
         system_prompt = f"""你是一个专业的AstrBot插件开发助手。请根据插件元数据和Markdown文档生成完整的插件代码。
 ## 开发文档：
-{dev_docs[:3000]}...
+{dev_docs}...
         
 要求：
 1. 生成完整的main.py文件
@@ -384,7 +384,7 @@ class LLMHandler:
    - 代码是否符合AstrBot插件开发文档中的规范
 
 开发文档参考：
-{dev_docs[:2000]}...
+{dev_docs}...
 
 满意度评分标准（必须严格执行）：
 - 90-100分：优秀，代码完全符合所有标准，可以直接使用
@@ -477,7 +477,7 @@ class LLMHandler:
 6. 严格遵守反向提示词要求：{self.negative_prompt}
 7. 设计文档// 请你把这里补充好
 8. 参考以下开发文档，确保配置文件符合规范：
-{dev_docs[:2000]}...
+{dev_docs}...
 
 请按照以下格式返回：
 ```json
@@ -546,7 +546,7 @@ class LLMHandler:
 3. 确保配置项设计合理，符合AstrBot配置规范
 4. 严格遵守反向提示词要求：{self.negative_prompt}
 5. 参考以下开发文档，确保配置文件符合规范：
-{dev_docs[:2000]}...
+{dev_docs}...
 
 当前配置文件：
 ```json

@@ -52,25 +52,6 @@ git clone https://github.com/qa296/astrbot_plugin_codemage.git
 
 ## 配置
 
-安装插件后，在 AstrBot 的配置文件中添加以下配置项:
-
-```json
-{
-  "llm_provider_id": "your_llm_provider_id",
-  "admin_only": true,
-  "negative_prompt": "禁止网络请求；禁止生成任何涉及政治、暴力、色情、违法的内容；禁止生成恶意代码...",
-  "auto_approve": false,
-  "step_by_step": true,
-  "satisfaction_threshold": 80,
-  "strict_review": true,
-  "max_retries": 3,
-  "enable_function_call": true,
-  "allow_dependencies": false,
-  "astrbot_url": "http://localhost:6185",
-  "api_username": "astrbot",
-  "api_password_md5": "your_md5_hashed_password"
-}
-```
 
 ### 配置项说明
 

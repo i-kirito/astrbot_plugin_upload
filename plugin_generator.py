@@ -564,7 +564,7 @@ class PluginGenerator:
             await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始生成插件代码: {plugin_name}")
             try:
-                code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc)
+                code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc, config_schema)
             except Exception as code_err:
                 error_msg = f"生成插件代码失败：{str(code_err)}"
                 self.logger.error(error_msg)
@@ -824,7 +824,7 @@ class PluginGenerator:
             await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始生成插件代码: {plugin_name}")
             try:
-                code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc)
+                code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc, config_schema)
             except Exception as code_err:
                 error_msg = f"生成插件代码失败：{str(code_err)}"
                 self.logger.error(error_msg)
