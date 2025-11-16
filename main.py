@@ -24,7 +24,7 @@ from .utils import validate_plugin_description, format_plugin_info
 @register(
     "astrbot_plugin_codemage",
     "qa296",
-    "AI驱动的AstrBot插件生成器",
+    "一个基于AI的 AstrBot 插件生成器，可以根据自然语言描述自动生成完整的 AstrBot 插件。",
     "1.0.0",
     "https://github.com/qa296/astrbot_plugin_codemage",
 )
