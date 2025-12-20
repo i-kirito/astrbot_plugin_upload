@@ -616,40 +616,24 @@ class PluginGenerator:
             
             # 尝试通过API安装插件
             if self.installer and self.config.get("api_password_md5"):
-                import tempfile
-                import shutil
-                await event.send(event.plain_result("正在通过API安装插件..."))
-                try:
-                    temp_dir = tempfile.mkdtemp(prefix="codemage_plugin_")
-                    try:
-                        plugin_path = await self._create_plugin_files(plugin_name, metadata, code, markdown_doc, config_schema, base_dir=temp_dir)
-                        self.logger.info(f"插件已在临时目录生成: {plugin_name} -> {plugin_path}")
-                        result["plugin_path"] = plugin_path
-                        
-                        zip_path = await self.installer.create_plugin_zip(plugin_path)
-                        if zip_path:
-                            install_result = await self.installer.install_plugin(zip_path)
-                            result["installed"] = True
-                            result["install_success"] = install_result.get("success", False)
-                            if install_result.get("success"):
-                                await event.send(event.plain_result("✅ 插件已通过API安装"))
-                                status_check = await self.installer.check_plugin_install_status(plugin_name)
-                                if status_check.get("has_errors"):
-                                    error_msg = "⚠️ 插件安装后检测到错误：\n" + "\n".join(status_check.get("error_logs", []))
-                                    await event.send(event.plain_result(error_msg))
-                            else:
-                                result["install_error"] = install_result.get("error", "未知错误")
-                                await event.send(event.plain_result(f"❌ 插件安装失败: {install_result.get('error')}"))
-                            if os.path.exists(zip_path):
-                                os.remove(zip_path)
-                    finally:
-                        if os.path.exists(temp_dir):
-                            shutil.rmtree(temp_dir)
-                            self.logger.info(f"已清理临时目录: {temp_dir}")
-                except Exception as e:
-                    self.logger.error(f"安装插件失败: {str(e)}")
-                    result["install_error"] = str(e)
-                    await event.send(event.plain_result(f"❌ 安装插件失败: {str(e)}"))
+                # 使用带自动修复和重试的安装流程
+                install_result = await self._install_with_auto_retry(plugin_name, metadata, code, markdown_doc, config_schema, event)
+                
+                result["installed"] = install_result.get("installed", False)
+                result["install_success"] = install_result.get("install_success", False)
+                result["plugin_path"] = install_result.get("plugin_path", "")
+                
+                if install_result.get("install_success"):
+                    if install_result.get("has_runtime_errors"):
+                        # 安装成功但有运行时错误（重试失败）
+                        error_logs = install_result.get("runtime_errors", [])
+                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败：\n" + "\n".join(error_logs)
+                        await event.send(event.plain_result(error_msg))
+                    else:
+                        await event.send(event.plain_result("✅ 插件已通过API安装并验证正常"))
+                else:
+                    result["install_error"] = install_result.get("error", "未知错误")
+                    await event.send(event.plain_result(f"❌ 插件安装失败: {install_result.get('error')}"))
             else:
                 self.logger.info("未配置API密码或installer，在本地创建插件文件")
                 plugin_path = await self._create_plugin_files(plugin_name, metadata, code, markdown_doc, config_schema)
@@ -912,40 +896,24 @@ class PluginGenerator:
             
             # 尝试通过API安装插件
             if self.installer and self.config.get("api_password_md5"):
-                import tempfile
-                import shutil
-                await event.send(event.plain_result("正在通过API安装插件..."))
-                try:
-                    temp_dir = tempfile.mkdtemp(prefix="codemage_plugin_")
-                    try:
-                        plugin_path = await self._create_plugin_files(plugin_name, metadata, code, markdown_doc, config_schema, base_dir=temp_dir)
-                        self.logger.info(f"插件已在临时目录生成: {plugin_name} -> {plugin_path}")
-                        result["plugin_path"] = plugin_path
-                        
-                        zip_path = await self.installer.create_plugin_zip(plugin_path)
-                        if zip_path:
-                            install_result = await self.installer.install_plugin(zip_path)
-                            result["installed"] = True
-                            result["install_success"] = install_result.get("success", False)
-                            if install_result.get("success"):
-                                await event.send(event.plain_result("✅ 插件已通过API安装"))
-                                status_check = await self.installer.check_plugin_install_status(plugin_name)
-                                if status_check.get("has_errors"):
-                                    error_msg = "⚠️ 插件安装后检测到错误：\n" + "\n".join(status_check.get("error_logs", []))
-                                    await event.send(event.plain_result(error_msg))
-                            else:
-                                result["install_error"] = install_result.get("error", "未知错误")
-                                await event.send(event.plain_result(f"❌ 插件安装失败: {install_result.get('error')}"))
-                            if os.path.exists(zip_path):
-                                os.remove(zip_path)
-                    finally:
-                        if os.path.exists(temp_dir):
-                            shutil.rmtree(temp_dir)
-                            self.logger.info(f"已清理临时目录: {temp_dir}")
-                except Exception as e:
-                    self.logger.error(f"安装插件失败: {str(e)}")
-                    result["install_error"] = str(e)
-                    await event.send(event.plain_result(f"❌ 安装插件失败: {str(e)}"))
+                # 使用带自动修复和重试的安装流程
+                install_result = await self._install_with_auto_retry(plugin_name, metadata, code, markdown_doc, config_schema, event)
+                
+                result["installed"] = install_result.get("installed", False)
+                result["install_success"] = install_result.get("install_success", False)
+                result["plugin_path"] = install_result.get("plugin_path", "")
+                
+                if install_result.get("install_success"):
+                    if install_result.get("has_runtime_errors"):
+                        # 安装成功但有运行时错误（重试失败）
+                        error_logs = install_result.get("runtime_errors", [])
+                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败：\n" + "\n".join(error_logs)
+                        await event.send(event.plain_result(error_msg))
+                    else:
+                        await event.send(event.plain_result("✅ 插件已通过API安装并验证正常"))
+                else:
+                    result["install_error"] = install_result.get("error", "未知错误")
+                    await event.send(event.plain_result(f"❌ 插件安装失败: {install_result.get('error')}"))
             else:
                 self.logger.info("未配置API密码或installer，在本地创建插件文件")
                 plugin_path = await self._create_plugin_files(plugin_name, metadata, code, markdown_doc, config_schema)
@@ -973,6 +941,126 @@ class PluginGenerator:
             self.generation_status["progress_percentage"] = 0
             self.generation_status["plugin_name"] = ""
         
+    async def _install_with_auto_retry(self, plugin_name: str, metadata: Dict[str, Any], code: str, markdown: str, config_schema: str, event: AstrMessageEvent) -> Dict[str, Any]:
+        """带自动修复和重试的插件安装流程
+        
+        Args:
+            plugin_name: 插件名称
+            metadata: 插件元数据
+            code: 插件代码
+            markdown: Markdown文档
+            config_schema: 配置文件内容
+            event: 消息事件
+            
+        Returns:
+            Dict[str, Any]: 安装结果
+        """
+        import tempfile
+        import shutil
+        
+        max_retries = self.installer.max_retries
+        current_retry = 0
+        current_code = code
+        
+        while current_retry <= max_retries:
+            temp_dir = tempfile.mkdtemp(prefix="codemage_plugin_")
+            zip_path = None
+            
+            try:
+                # 1. 创建插件文件
+                plugin_path = await self._create_plugin_files(plugin_name, metadata, current_code, markdown, config_schema, base_dir=temp_dir)
+                self.logger.info(f"插件已在临时目录生成 (尝试 {current_retry + 1}/{max_retries + 1}): {plugin_name}")
+                
+                # 2. 打包插件
+                zip_path = await self.installer.create_plugin_zip(plugin_path)
+                if not zip_path:
+                    return {
+                        "success": False,
+                        "error": "插件打包失败"
+                    }
+                    
+                # 3. 安装插件
+                if current_retry > 0:
+                    await event.send(event.plain_result(f"正在重试安装插件 (第 {current_retry} 次重试)..."))
+                else:
+                    await event.send(event.plain_result("正在通过API安装插件..."))
+                    
+                install_result = await self.installer.install_plugin(zip_path)
+                
+                if not install_result.get("success"):
+                    # 安装请求本身失败（如网络问题、认证失败等），通常不需要修复代码，直接返回失败
+                    return {
+                        "success": False,
+                        "error": f"插件安装请求失败: {install_result.get('error')}"
+                    }
+                
+                # 4. 检查安装状态和错误日志
+                await event.send(event.plain_result("正在检查插件运行状态..."))
+                status_check = await self.installer.check_plugin_install_status(plugin_name)
+                
+                if not status_check.get("has_errors"):
+                    # 安装成功且无错误
+                    self.logger.info(f"✅ 插件安装成功且运行正常: {plugin_name}")
+                    return {
+                        "success": True,
+                        "plugin_path": plugin_path, # 注意：这里返回的是临时路径，但对于API安装来说不重要
+                        "installed": True,
+                        "install_success": True
+                    }
+                
+                # 5. 检测到错误，准备修复
+                error_logs = status_check.get("error_logs", [])
+                error_msg = "\n".join(error_logs)
+                self.logger.warning(f"检测到插件错误 (尝试 {current_retry + 1}):\n{error_msg}")
+                
+                if current_retry >= max_retries:
+                    # 达到最大重试次数，放弃
+                    await event.send(event.plain_result(f"❌ 插件安装后检测到错误，且已达到最大重试次数:\n{error_msg}"))
+                    return {
+                        "success": True, # 标记为True以便流程结束，但在结果中标记安装有错误
+                        "plugin_path": plugin_path,
+                        "installed": True,
+                        "install_success": True, # 安装动作是成功的
+                        "has_runtime_errors": True,
+                        "runtime_errors": error_logs
+                    }
+                
+                # 6. 尝试自动修复
+                await event.send(event.plain_result(f"⚠️ 检测到插件错误，正在尝试自动修复...\n错误信息：{error_logs[0] if error_logs else '未知错误'}"))
+                
+                # 删除已安装的插件
+                await self.installer.delete_plugin_folder(plugin_name)
+                
+                # 请求LLM修复代码
+                fix_prompt = f"插件安装后运行报错，请修复代码。\n错误日志：\n{error_msg}"
+                current_code = await self.llm_handler.fix_plugin_code(current_code, [fix_prompt], ["请根据错误日志修复代码"])
+                
+                current_retry += 1
+                
+            except Exception as e:
+                self.logger.error(f"自动修复流程异常: {str(e)}")
+                return {
+                    "success": False,
+                    "error": f"自动修复流程异常: {str(e)}"
+                }
+            finally:
+                # 清理临时文件
+                if zip_path and os.path.exists(zip_path):
+                    try:
+                        os.remove(zip_path)
+                    except Exception:
+                        pass
+                if os.path.exists(temp_dir):
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except Exception:
+                        pass
+                        
+        return {
+            "success": False,
+            "error": "未知错误"
+        }
+
     async def _review_code_with_retry(self, code: str, metadata: Dict[str, Any],
                                     markdown: str,
                                     max_retries: int = 3) -> Dict[str, Any]:

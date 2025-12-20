@@ -6,9 +6,12 @@ CodeMage插件安装器模块
 import os
 import zipfile
 import tempfile
-from typing import Dict, Any, Optional
+import shutil
+from typing import Dict, Any, Optional, List
 from astrbot.api import logger
 from astrbot.api import AstrBotConfig
+from astrbot.core.utils.io import remove_dir
+from astrbot.core.utils.astrbot_path import get_astrbot_plugin_path
 
 
 class PluginInstaller:
@@ -22,6 +25,7 @@ class PluginInstaller:
         # 配置文件中存储的是MD5加密后的密码
         self.password_md5 = config.get("api_password_md5", "")
         self.token = None
+        self.max_retries = config.get("max_retries", 3) # 新增：最大重试次数
         
     async def login(self) -> bool:
         """登录AstrBot并获取token
@@ -186,6 +190,112 @@ class PluginInstaller:
                 "error": str(e)
             }
             
+    async def uninstall_plugin_api(self, plugin_name: str) -> Dict[str, Any]:
+        """通过API卸载插件
+        
+        Args:
+            plugin_name: 插件名称
+            
+        Returns:
+            Dict[str, Any]: 卸载结果
+        """
+        if not self.token:
+            if not await self.login():
+                return {
+                    "success": False,
+                    "error": "API登录失败"
+                }
+                
+        try:
+            import aiohttp
+            
+            url = f"{self.astrbot_url}/api/plugin/uninstall"
+            payload = {
+                "name": plugin_name
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {self.token}"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    result = await resp.json()
+                    
+                    if result.get("status") == "ok":
+                        self.logger.info(f"✅ 插件卸载成功: {plugin_name}")
+                        return {
+                            "success": True,
+                            "message": result.get('message')
+                        }
+                    else:
+                        self.logger.error(f"❌ 插件卸载失败: {result.get('message')}")
+                        return {
+                            "success": False,
+                            "error": result.get('message', 'Unknown error')
+                        }
+                        
+        except Exception as e:
+            self.logger.error(f"❌ 插件卸载请求失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def uninstall_plugin_file(self, plugin_name: str) -> Dict[str, Any]:
+        """通过文件系统删除插件
+        
+        Args:
+            plugin_name: 插件名称
+            
+        Returns:
+            Dict[str, Any]: 删除结果
+        """
+        try:
+            # 获取插件目录路径
+            plugins_dir = get_astrbot_plugin_path()
+            plugin_path = os.path.join(plugins_dir, plugin_name)
+            
+            if not os.path.exists(plugin_path):
+                return {
+                    "success": False,
+                    "error": f"插件目录不存在: {plugin_path}"
+                }
+                
+            remove_dir(plugin_path)
+            self.logger.info(f"✅ 插件文件删除成功: {plugin_path}")
+            return {
+                "success": True,
+                "message": f"插件文件已删除: {plugin_path}"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ 插件文件删除失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def delete_plugin_folder(self, plugin_name: str) -> Dict[str, Any]:
+        """删除插件文件夹（混合策略）
+        
+        Args:
+            plugin_name: 插件名称
+            
+        Returns:
+            Dict[str, Any]: 删除结果
+        """
+        # 1. 尝试API卸载
+        api_result = await self.uninstall_plugin_api(plugin_name)
+        if api_result.get("success"):
+            return api_result
+            
+        self.logger.warning(f"API卸载失败，尝试文件删除: {api_result.get('error')}")
+        
+        # 2. 尝试文件删除
+        file_result = await self.uninstall_plugin_file(plugin_name)
+        return file_result
+
     async def check_plugin_install_status(self, plugin_name: str) -> Dict[str, Any]:
         """检查插件安装状态和错误日志
         
@@ -226,6 +336,14 @@ class PluginInstaller:
                         error_logs = []
                         warning_logs = []
                         
+                        # 错误类型关键词
+                        error_keywords = [
+                            "ImportError", "ModuleNotFoundError", "SyntaxError", 
+                            "IndentationError", "NameError", "TypeError", 
+                            "ValueError", "AttributeError", "导入失败", 
+                            "加载失败", "安装失败", "依赖缺失"
+                        ]
+                        
                         for log_entry in logs:
                             if not isinstance(log_entry, dict):
                                 continue
@@ -250,7 +368,15 @@ class PluginInstaller:
                             
                             if is_plugin_related:
                                 if level in ['ERROR', 'ERRO'] or 'error' in message.lower() or '失败' in message:
-                                    error_logs.append(message)
+                                    # 进一步确认是否是真正的错误
+                                    is_real_error = False
+                                    if level in ['ERROR', 'ERRO']:
+                                        is_real_error = True
+                                    elif any(k in message for k in error_keywords):
+                                        is_real_error = True
+                                        
+                                    if is_real_error:
+                                        error_logs.append(message)
                                 elif level == 'WARN' or 'warn' in message.lower():
                                     warning_logs.append(message)
                                     
