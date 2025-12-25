@@ -152,7 +152,8 @@ class CodeMagePlugin(Star):
             )
 
             if result["success"]:
-                message = f"插件生成成功！\n插件名称：{result['plugin_name']}\n插件路径：{result['plugin_path']}"
+                message = (f"插件生成成功！\n" 
+                           f"插件名称：{result['plugin_name']}")
                 if result.get("installed"):
                     message += f"\n安装状态：{'✅ 已安装' if result.get('install_success') else '❌ 安装失败'}"
                     if not result.get("install_success"):
@@ -265,7 +266,8 @@ class CodeMagePlugin(Star):
             result = await self.plugin_generator.continue_plugin_generation(True, feedback, event)
             
             if result["success"]:
-                message = f"插件生成成功！\n插件名称：{result['plugin_name']}\n插件路径：{result['plugin_path']}"
+                message = (f"插件生成成功！\n" 
+                           f"插件名称：{result['plugin_name']}")
                 if result.get("installed"):
                     message += f"\n安装状态：{'✅ 已安装' if result.get('install_success') else '❌ 安装失败'}"
                     if not result.get("install_success"):

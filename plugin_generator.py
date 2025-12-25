@@ -457,7 +457,7 @@ class PluginGenerator:
             
             # 步骤1：生成插件元数据
             self._update_status(1)
-            await event.send(event.plain_result(self._build_step_message()))
+            await event.send(event.plain_result("正在生成插件方案..."))
             try:
                 if step_by_step:
                     metadata = await self.llm_handler.generate_metadata_structure(description)
@@ -500,7 +500,6 @@ class PluginGenerator:
                 
             # 步骤2：生成插件文档
             self._update_status(2, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             try:
                 if step_by_step or not markdown_doc:
                     markdown_doc = await self.llm_handler.generate_markdown_document(metadata, description)
@@ -515,7 +514,6 @@ class PluginGenerator:
             
             # 步骤3：生成配置文件
             self._update_status(3, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             try:
                 config_schema = await self.llm_handler.generate_config_schema(metadata, description)
                 config_schema = self._normalize_config_schema(config_schema)
@@ -527,10 +525,11 @@ class PluginGenerator:
                     "error": error_msg
                 }
             
-            # 显示初步生成的插件方案（仅元数据信息）
-            await event.send(event.plain_result(f"初步生成的插件方案：\n\n{self._build_preview_text(metadata, '', '')}"))
-            # 文档与配置以图片形式发送
-            await self._send_doc_and_config_images(event, metadata, markdown_doc, config_schema)
+            # 显示初步生成的插件方案（仅元数据信息） - 仅在非自动批准模式下显示
+            if not self.config.get("auto_approve", False):
+                await event.send(event.plain_result(f"初步生成的插件方案：\n\n{self._build_preview_text(metadata, '', '')}"))
+                # 文档与配置以图片形式发送
+                await self._send_doc_and_config_images(event, metadata, markdown_doc, config_schema)
             
             # 用户确认 - 修改为指令方式
             if not self.config.get("auto_approve", False):
@@ -557,11 +556,11 @@ class PluginGenerator:
                     "pending_confirmation": True
                 }
             else:
-                await event.send(event.plain_result("根据配置已自动批准插件方案。"))
+                # 自动批准模式，跳过用户确认，直接继续生成
+                pass
             
             # 步骤4：生成插件代码
             self._update_status(4, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始生成插件代码: {plugin_name}")
             try:
                 code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc, config_schema)
@@ -575,7 +574,6 @@ class PluginGenerator:
             
             # 步骤5：代码审查与修复
             self._update_status(5, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始代码审查: {plugin_name}")
             review_result = normalize_review_result(await self._review_code_with_retry(code, metadata, markdown_doc))
             satisfaction_threshold = self.config.get("satisfaction_threshold", 80)
@@ -600,11 +598,10 @@ class PluginGenerator:
                     "error": f"代码审查未通过：{reason}"
                 }
             
-            await event.send(event.plain_result(f"代码审查通过，满意度得分：{review_result['satisfaction_score']}分"))
+            # 跳过代码审查通过的消息输出
             
             # 步骤6：生成最终插件并安装
             self._update_status(6, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             
             result = {
                 "success": True,
@@ -627,7 +624,7 @@ class PluginGenerator:
                     if install_result.get("has_runtime_errors"):
                         # 安装成功但有运行时错误（重试失败）
                         error_logs = install_result.get("runtime_errors", [])
-                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败：\n" + "\n".join(error_logs)
+                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败"
                         await event.send(event.plain_result(error_msg))
                     else:
                         await event.send(event.plain_result("✅ 插件已通过API安装并验证正常"))
@@ -805,7 +802,6 @@ class PluginGenerator:
                 restore_api_pwd2 = True
             
             # 步骤4：生成插件代码
-            await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始生成插件代码: {plugin_name}")
             try:
                 code = await self.llm_handler.generate_plugin_code(metadata, markdown_doc, config_schema)
@@ -819,7 +815,6 @@ class PluginGenerator:
             
             # 步骤5：代码审查与修复
             self._update_status(5, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             self.logger.info(f"开始代码审查: {plugin_name}")
             
             def normalize_review_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -880,11 +875,10 @@ class PluginGenerator:
                     "error": f"代码审查未通过：{reason}"
                 }
             
-            await event.send(event.plain_result(f"代码审查通过，满意度得分：{review_result['satisfaction_score']}分"))
+            # 跳过代码审查通过的消息输出
             
             # 步骤6：生成最终插件并安装
             self._update_status(6, plugin_name)
-            await event.send(event.plain_result(self._build_step_message()))
             
             result = {
                 "success": True,
@@ -907,7 +901,7 @@ class PluginGenerator:
                     if install_result.get("has_runtime_errors"):
                         # 安装成功但有运行时错误（重试失败）
                         error_logs = install_result.get("runtime_errors", [])
-                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败：\n" + "\n".join(error_logs)
+                        error_msg = "⚠️ 插件安装成功，但检测到运行时错误且自动修复失败"
                         await event.send(event.plain_result(error_msg))
                     else:
                         await event.send(event.plain_result("✅ 插件已通过API安装并验证正常"))
@@ -995,7 +989,7 @@ class PluginGenerator:
                     }
                 
                 # 4. 检查安装状态和错误日志
-                await event.send(event.plain_result("正在检查插件运行状态..."))
+                # 跳过插件运行状态检查的消息输出
                 status_check = await self.installer.check_plugin_install_status(plugin_name)
                 
                 if not status_check.get("has_errors"):
@@ -1026,7 +1020,7 @@ class PluginGenerator:
                     }
                 
                 # 6. 尝试自动修复
-                await event.send(event.plain_result(f"⚠️ 检测到插件错误，正在尝试自动修复...\n错误信息：{error_logs[0] if error_logs else '未知错误'}"))
+                await event.send(event.plain_result("⚠️ 检测到插件错误，正在尝试自动修复..."))
                 
                 # 删除已安装的插件
                 await self.installer.delete_plugin_folder(plugin_name)
