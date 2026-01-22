@@ -7,6 +7,7 @@ AstrBot 插件上传安装器
 import os
 import json
 import hashlib
+import asyncio
 from typing import Dict, Any, Optional
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -22,7 +23,7 @@ from .installer import PluginInstaller
     "astrbot_plugin_upload",
     "ikirito",
     "AstrBot 插件上传安装器，支持检索本地插件并上传安装",
-    "1.1.0",
+    "1.2.2",
     "https://github.com/ikirito/astrbot_plugin_upload",
 )
 class PluginUploadPlugin(Star):
@@ -33,7 +34,6 @@ class PluginUploadPlugin(Star):
 
         # === 数据持久化配置 ===
         # 设定数据目录: data/astrbot_plugin_upload/
-        # 这样更新插件本身时，数据目录不会被删除
         self.data_root = os.path.join(os.getcwd(), "data", "astrbot_plugin_upload")
         if not os.path.exists(self.data_root):
             try:
@@ -50,7 +50,6 @@ class PluginUploadPlugin(Star):
         old_plugin_dir = os.path.dirname(os.path.abspath(__file__))
         old_plugins_path = os.path.join(old_plugin_dir, "plugins")
         if os.path.exists(old_plugins_path) and os.listdir(old_plugins_path):
-            # 仅记录日志，不自动移动文件，防止误操作
             self.logger.info(f"提示：检测到旧插件目录 {old_plugins_path} 中有文件，建议手动移动到 {self.plugins_path}")
 
         # 初始化安装器
@@ -58,17 +57,14 @@ class PluginUploadPlugin(Star):
 
     def _init_installer(self):
         """初始化安装器，自动处理密码 MD5"""
-        # 从配置中读取信息
         astrbot_url = self.config.get("astrbot_url", "http://localhost:6185")
         api_username = self.config.get("api_username", "astrbot")
         api_password = self.config.get("api_password", "")
 
-        # 计算密码 MD5
         api_password_md5 = ""
         if api_password:
             api_password_md5 = self._md5(api_password)
 
-        # 构建配置供 installer 使用
         installer_config = dict(self.config) if hasattr(self.config, '__iter__') else {}
         installer_config["astrbot_url"] = astrbot_url
         installer_config["api_username"] = api_username
@@ -90,12 +86,10 @@ class PluginUploadPlugin(Star):
         for item in os.listdir(self.plugins_path):
             item_path = os.path.join(self.plugins_path, item)
             if os.path.isdir(item_path) and not item.startswith('.'):
-                # 检查是否包含 main.py 或 metadata.yaml（标准插件结构）
                 has_main = os.path.exists(os.path.join(item_path, 'main.py'))
                 has_metadata = os.path.exists(os.path.join(item_path, 'metadata.yaml'))
 
                 if has_main or has_metadata:
-                    # 尝试读取插件描述
                     desc = ""
                     if has_metadata:
                         try:
@@ -115,11 +109,9 @@ class PluginUploadPlugin(Star):
         return plugins
 
     def _md5(self, text: str) -> str:
-        """计算 MD5 值"""
         return hashlib.md5(text.encode()).hexdigest()
 
     def _check_admin_permission(self, event: AstrMessageEvent) -> bool:
-        """检查管理员权限"""
         if not self.config.get("admin_only", True):
             return True
 
@@ -139,7 +131,6 @@ class PluginUploadPlugin(Star):
         except Exception as e:
             self.logger.warning(f"检查管理员权限时发生错误: {str(e)}")
 
-        # 兼容性兜底：从 AstrBot 配置里匹配管理员 ID 列表
         try:
             sender_id = str(event.get_sender_id())
             astrbot_config = self.context.get_config()
@@ -153,21 +144,20 @@ class PluginUploadPlugin(Star):
 
         return False
 
-    @filter.command("上传插件", alias={"upload_plugin", "install_plugin"})
-    async def upload_plugin_command(self, event: AstrMessageEvent):
-        """上传并安装插件指令
+    @filter.command("插件安装", alias={"install_plugin", "plugin_install"})
+    async def install_plugin_command(self, event: AstrMessageEvent, arg: str = ""):
+        """安装插件 (支持 ZIP/URL/本地路径)
 
-        用法：发送 /上传插件 命令后，附带 ZIP 文件
+        Args:
+            arg: 可选参数，可以是 GitHub 链接或本地路径
         """
-        # 检查管理员权限
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
-        # 检查是否有附件
+        # 1. 检查附件 (ZIP)
         files = []
         try:
-            # 尝试获取消息中的文件附件
             if hasattr(event, 'message') and hasattr(event.message, 'message'):
                 for seg in event.message.message:
                     if hasattr(seg, 'type') and seg.type == 'file':
@@ -178,121 +168,119 @@ class PluginUploadPlugin(Star):
         except Exception as e:
             self.logger.error(f"获取文件附件失败: {e}")
 
-        if not files:
-            yield event.plain_result(
-                "请发送插件 ZIP 文件\n"
-                "用法：发送 /上传插件 命令并附带 ZIP 文件\n"
-                "或使用 /安装插件 <插件目录路径> 从本地安装"
-            )
-            return
-
-        # 处理第一个文件
-        file_path = files[0]
-        if not file_path.endswith('.zip'):
-            yield event.plain_result("请上传 ZIP 格式的插件文件")
-            return
-
-        yield event.plain_result("正在安装插件...")
-
-        try:
-            result = await self.installer.install_plugin(file_path)
-
-            if result.get("success"):
-                plugin_name = result.get("plugin_name", "未知")
-                yield event.plain_result(f"插件安装成功！\n插件名称：{plugin_name}")
-            else:
-                error = result.get("error", "未知错误")
-                yield event.plain_result(f"插件安装失败：{error}")
-        except Exception as e:
-            self.logger.error(f"插件安装过程中发生错误: {str(e)}")
-            yield event.plain_result(f"插件安装失败：{str(e)}")
-
-    @filter.command("安装插件", alias={"install_local"})
-    async def install_local_plugin(self, event: AstrMessageEvent, plugin_path: str = ""):
-        """从本地路径安装插件
-
-        Args:
-            plugin_path: 插件目录路径
-        """
-        # 检查管理员权限
-        if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
-            return
-
-        if not plugin_path:
-            yield event.plain_result("请提供插件目录路径，例如：/安装插件 /path/to/plugin")
-            return
-
-        if not os.path.exists(plugin_path):
-            yield event.plain_result(f"路径不存在：{plugin_path}")
-            return
-
-        if not os.path.isdir(plugin_path):
-            yield event.plain_result("请提供插件目录路径，而非文件路径")
-            return
-
-        yield event.plain_result("正在打包并安装插件...")
-
-        try:
-            # 打包插件
-            zip_path = await self.installer.create_plugin_zip(plugin_path)
-            if not zip_path:
-                yield event.plain_result("插件打包失败")
+        if files:
+            file_path = files[0]
+            if not file_path.endswith('.zip'):
+                await event.send(event.plain_result("请上传 ZIP 格式的插件文件"))
                 return
 
-            # 安装插件
-            plugin_name = os.path.basename(os.path.normpath(plugin_path))
-            result = await self.installer.install_plugin(zip_path, plugin_name)
+            await event.send(event.plain_result("📦 收到 ZIP 文件，正在安装..."))
+            result = await self.installer.install_plugin(file_path)
+            await self._send_install_result(event, result)
+            return
 
-            # 清理临时文件
+        # 2. 检查参数
+        if not arg:
+            await event.send(event.plain_result(
+                "请提供插件来源：\n"
+                "1. 发送 ZIP 文件的同时输入指令\n"
+                "2. 输入 GitHub 仓库链接\n"
+                "3. 输入本地插件目录路径"
+            ))
+            return
+
+        if arg.startswith("http"):
+            # URL 安装
+            await event.send(event.plain_result(f"🌐 正在从 URL 下载并安装: {arg}"))
+            result = await self.installer.install_from_url(arg)
+            await self._send_install_result(event, result)
+
+        else:
+            # 本地路径安装
+            if not os.path.exists(arg):
+                await event.send(event.plain_result(f"❌ 路径不存在: {arg}"))
+                return
+
+            if not os.path.isdir(arg):
+                await event.send(event.plain_result("❌ 请提供插件目录路径，而非文件路径"))
+                return
+
+            await event.send(event.plain_result(f"📂 正在从本地路径安装: {arg}"))
+            zip_path = await self.installer.create_plugin_zip(arg)
+            if not zip_path:
+                await event.send(event.plain_result("❌ 插件打包失败"))
+                return
+
+            plugin_name = os.path.basename(os.path.normpath(arg))
+            result = await self.installer.install_plugin(zip_path, plugin_name)
             try:
                 os.remove(zip_path)
-            except Exception:
+            except:
                 pass
+            await self._send_install_result(event, result)
 
-            if result.get("success"):
-                yield event.plain_result(f"插件安装成功！\n插件名称：{result.get('plugin_name', plugin_name)}")
-            else:
-                error = result.get("error", "未知错误")
-                yield event.plain_result(f"插件安装失败：{error}")
-        except Exception as e:
-            self.logger.error(f"插件安装过程中发生错误: {str(e)}")
-            yield event.plain_result(f"插件安装失败：{str(e)}")
-
-    @filter.command("卸载插件", alias={"uninstall_plugin", "remove_plugin"})
-    async def uninstall_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
-        """卸载已安装的插件
-
-        Args:
-            plugin_name: 插件名称
-        """
-        # 检查管理员权限
+    @filter.command("插件更新", alias={"update_plugin", "plugin_update"})
+    async def update_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
+        """更新插件 (针对本地 Repo 中的插件)"""
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
         if not plugin_name:
-            yield event.plain_result("请提供要卸载的插件名称，例如：/卸载插件 my_plugin")
+            await event.send(event.plain_result("请输入要更新的插件名称"))
             return
 
-        yield event.plain_result(f"正在卸载插件：{plugin_name}...")
-
-        try:
-            result = await self.installer.delete_plugin_folder(plugin_name)
-
-            if result.get("success"):
-                yield event.plain_result(f"插件卸载成功：{plugin_name}")
+        # 检查 repo 中是否存在该插件
+        repo_plugin_path = os.path.join(self.plugins_path, plugin_name)
+        if not os.path.exists(repo_plugin_path):
+            # 尝试模糊匹配
+            candidates = [p for p in os.listdir(self.plugins_path) if plugin_name in p and os.path.isdir(os.path.join(self.plugins_path, p))]
+            if len(candidates) == 1:
+                plugin_name = candidates[0]
+                repo_plugin_path = os.path.join(self.plugins_path, plugin_name)
             else:
-                error = result.get("error", "未知错误")
-                yield event.plain_result(f"插件卸载失败：{error}")
-        except Exception as e:
-            self.logger.error(f"插件卸载过程中发生错误: {str(e)}")
-            yield event.plain_result(f"插件卸载失败：{str(e)}")
+                await event.send(event.plain_result(f"❌ 在本地仓库中未找到插件: {plugin_name}"))
+                return
+
+        await event.send(event.plain_result(f"🔄 正在更新插件: {plugin_name}"))
+
+        # 1. 如果是 Git 仓库，尝试 git pull
+        if os.path.exists(os.path.join(repo_plugin_path, ".git")):
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    "git", "pull",
+                    cwd=repo_plugin_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+
+                if process.returncode == 0:
+                    self.logger.info(f"Git pull 成功: {stdout.decode()}")
+                    await event.send(event.plain_result(f"✅ Git 代码已更新"))
+                else:
+                    self.logger.warning(f"Git pull 失败: {stderr.decode()}")
+                    await event.send(event.plain_result(f"⚠️ Git 更新失败 (将尝试直接重新安装): {stderr.decode()[:50]}"))
+            except Exception as e:
+                self.logger.error(f"Git 更新出错: {e}")
+
+        # 2. 重新打包安装
+        zip_path = await self.installer.create_plugin_zip(repo_plugin_path)
+        if not zip_path:
+            await event.send(event.plain_result("❌ 更新失败：插件打包出错"))
+            return
+
+        result = await self.installer.install_plugin(zip_path, plugin_name)
+        try:
+            os.remove(zip_path)
+        except:
+            pass
+
+        await self._send_install_result(event, result)
 
     @filter.command("插件列表", alias={"list_plugins", "plugins"})
-    async def list_plugins_command(self, event: AstrMessageEvent):
+    async def list_plugins_command(self, event: AstrMessageEvent, index: str = ""):
         """列出本地可用的插件"""
-        # 检查管理员权限
         if not self._check_admin_permission(event):
             await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
@@ -307,6 +295,21 @@ class PluginUploadPlugin(Star):
             ))
             return
 
+        # 如果直接带了参数 (例如 /插件列表 1)
+        if index:
+            try:
+                idx = int(index) - 1
+                if 0 <= idx < len(plugins):
+                    selected = plugins[idx]
+                    await event.send(event.plain_result(f"🚀 直接安装第 {index} 号插件: {selected['name']}"))
+                    await self._do_install_plugin_direct(event, selected)
+                    return
+                else:
+                    await event.send(event.plain_result(f"❌ 无效的序号：{index}"))
+                    return
+            except ValueError:
+                pass
+
         result_lines = ["📦 本地可用插件列表：\n"]
         for i, plugin in enumerate(plugins, 1):
             desc = f" - {plugin['desc']}" if plugin['desc'] else ""
@@ -317,7 +320,7 @@ class PluginUploadPlugin(Star):
         message_result = event.plain_result("\n".join(result_lines))
         await event.send(message_result)
 
-        # 进入等待模式，复用选择逻辑
+        # 进入等待模式
         @session_waiter(timeout=60, record_history_chains=False)
         async def plugin_selection_waiter(controller: SessionController, event: AstrMessageEvent):
             try:
@@ -341,11 +344,6 @@ class PluginUploadPlugin(Star):
                         await event.send(message_result)
                         controller.keep(timeout=60, reset_timeout=True)
                 except ValueError:
-                    # 如果输入的不是数字，可能是其他指令，停止等待以免干扰
-                    # 或者提示输入数字。为了体验，这里选择忽略非数字输入或提示
-                    # 考虑到用户可能想执行其他命令，如果不是数字，我们可以停止等待
-                    # 但为了防止误操作，还是提示一下比较好，或者静默退出？
-                    # 按照惯例，提示输入数字
                     message_result = event.make_result()
                     message_result.chain = [Comp.Plain("请输入有效的数字序号")]
                     await event.send(message_result)
@@ -365,94 +363,61 @@ class PluginUploadPlugin(Star):
         finally:
             event.stop_event()
 
-    @filter.command("选择插件", alias={"select_plugin", "sp"})
-    async def select_plugin_command(self, event: AstrMessageEvent, index: str = ""):
-        """选择并安装本地插件
-
-        Args:
-            index: 插件序号
-        """
-        # 检查管理员权限
+    @filter.command("卸载插件", alias={"uninstall_plugin", "remove_plugin"})
+    async def uninstall_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
+        """卸载已安装的插件"""
         if not self._check_admin_permission(event):
             await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
-        plugins = self._get_available_plugins()
-
-        if not plugins:
-            await event.send(event.plain_result("未找到可用插件，请先使用 /插件列表 查看"))
+        if not plugin_name:
+            await event.send(event.plain_result("请提供要卸载的插件名称，例如：/卸载插件 my_plugin"))
             return
 
-        if not index:
-            # 显示插件列表供选择
-            result_lines = ["请选择要安装的插件（回复序号）：\n"]
-            for i, plugin in enumerate(plugins, 1):
-                desc = f" - {plugin['desc']}" if plugin['desc'] else ""
-                result_lines.append(f"{i}. {plugin['name']}{desc}")
+        await event.send(event.plain_result(f"正在卸载插件：{plugin_name}..."))
 
-            message_result = event.plain_result("\n".join(result_lines))
-            await event.send(message_result)
+        try:
+            result = await self.installer.delete_plugin_folder(plugin_name)
 
-            # 使用会话等待用户选择
-            @session_waiter(timeout=60, record_history_chains=False)
-            async def plugin_selection_waiter(controller: SessionController, event: AstrMessageEvent):
-                try:
-                    user_input = event.message_str.strip()
+            if result.get("success"):
+                await event.send(event.plain_result(f"插件卸载成功：{plugin_name}"))
+            else:
+                error = result.get("error", "未知错误")
+                await event.send(event.plain_result(f"插件卸载失败：{error}"))
+        except Exception as e:
+            self.logger.error(f"插件卸载过程中发生错误: {str(e)}")
+            await event.send(event.plain_result(f"插件卸载失败：{str(e)}"))
 
-                    if user_input == "0" or user_input.lower() == "q":
-                        message_result = event.make_result()
-                        message_result.chain = [Comp.Plain("操作已取消")]
-                        await event.send(message_result)
-                        controller.stop()
-                        return
+    @filter.command("插件帮助", alias={"plugin_help"})
+    async def show_help(self, event: AstrMessageEvent):
+        """显示插件帮助信息"""
+        help_text = """📖 插件上传安装器帮助
 
-                    try:
-                        idx = int(user_input) - 1
-                        if 0 <= idx < len(plugins):
-                            selected = plugins[idx]
-                            await self._do_install_plugin(event, selected, controller)
-                        else:
-                            message_result = event.make_result()
-                            message_result.chain = [Comp.Plain("无效的序号，请重新输入（输入 0 取消）")]
-                            await event.send(message_result)
-                            controller.keep(timeout=60, reset_timeout=True)
-                    except ValueError:
-                        message_result = event.make_result()
-                        message_result.chain = [Comp.Plain("请输入有效的数字序号")]
-                        await event.send(message_result)
-                        controller.keep(timeout=60, reset_timeout=True)
-                except Exception as e:
-                    self.logger.error(f"选择插件时出错: {e}")
-                    message_result = event.make_result()
-                    message_result.chain = [Comp.Plain(f"发生错误: {str(e)}")]
-                    await event.send(message_result)
-                    controller.stop()
+【指令列表】
+  /插件安装 [ZIP/URL/路径]  - 智能安装插件
+  /插件更新 <名称>          - 更新本地插件 (支持Git)
+  /插件列表 [序号]          - 查看/安装本地插件
+  /卸载插件 <名称>          - 卸载已安装的插件
+  /插件帮助                 - 显示此帮助
 
-            try:
-                await plugin_selection_waiter(event)
-            except Exception as e:
-                self.logger.error(f"插件选择错误: {e}")
-                await event.send(event.plain_result(f"发生错误：{str(e)}"))
-            finally:
-                event.stop_event()
-        else:
-            # 直接安装指定序号的插件
-            try:
-                idx = int(index) - 1
-                if 0 <= idx < len(plugins):
-                    selected = plugins[idx]
-                    await self._do_install_plugin_direct(event, selected)
-                else:
-                    await event.send(event.plain_result(f"无效的序号：{index}"))
-            except ValueError:
-                await event.send(event.plain_result("请输入有效的数字序号"))
+【使用说明】
+1. 安装 GitHub 插件：
+   /插件安装 https://github.com/user/repo
+2. 交互式安装：
+   发送 /插件列表，然后回复序号
+3. 更新插件：
+   /插件更新 astrbot_plugin_mpemby
+
+【注意事项】
+- 仅管理员可用
+- 插件库位置：data/astrbot_plugin_upload/repo/"""
+        await event.send(event.plain_result(help_text))
 
     async def _do_install_plugin(self, event: AstrMessageEvent, plugin: dict, controller: SessionController):
         """执行插件安装（会话模式）"""
-        # 检查是否已配置凭据
         if not self._is_configured():
             message_result = event.make_result()
-            message_result.chain = [Comp.Plain("尚未配置 AstrBot 凭据\n请先使用 /配置凭据 命令进行配置")]
+            message_result.chain = [Comp.Plain("API 密码未配置，请先在后台插件配置中填写 api_password")]
             await event.send(message_result)
             controller.stop()
             return
@@ -461,94 +426,42 @@ class PluginUploadPlugin(Star):
         message_result.chain = [Comp.Plain(f"正在安装插件：{plugin['name']}...")]
         await event.send(message_result)
 
-        try:
-            # 打包并安装
-            zip_path = await self.installer.create_plugin_zip(plugin['path'])
-            if not zip_path:
-                message_result = event.make_result()
-                message_result.chain = [Comp.Plain("插件打包失败")]
-                await event.send(message_result)
-                controller.stop()
-                return
-
-            result = await self.installer.install_plugin(zip_path, plugin['name'])
-
-            # 清理临时文件
-            try:
-                os.remove(zip_path)
-            except:
-                pass
-
-            message_result = event.make_result()
-            if result.get("success"):
-                message_result.chain = [Comp.Plain(f"✅ 插件安装成功！\n插件名称：{result.get('plugin_name', plugin['name'])}")]
-            else:
-                message_result.chain = [Comp.Plain(f"❌ 插件安装失败：{result.get('error', '未知错误')}")]
-            await event.send(message_result)
-
-        except Exception as e:
-            self.logger.error(f"安装插件时出错: {e}")
-            message_result = event.make_result()
-            message_result.chain = [Comp.Plain(f"安装失败：{str(e)}")]
-            await event.send(message_result)
-
+        await self._install_logic(event, plugin['path'], plugin['name'])
         controller.stop()
 
     async def _do_install_plugin_direct(self, event: AstrMessageEvent, plugin: dict):
         """执行插件安装（直接模式）"""
-        # 检查是否已配置凭据
         if not self._is_configured():
-            await event.send(event.plain_result("尚未配置 AstrBot 凭据\n请先使用 /配置凭据 命令进行配置"))
+            await event.send(event.plain_result("API 密码未配置，请先在后台插件配置中填写 api_password"))
             return
 
         await event.send(event.plain_result(f"正在安装插件：{plugin['name']}..."))
+        await self._install_logic(event, plugin['path'], plugin['name'])
 
+    async def _install_logic(self, event: AstrMessageEvent, path: str, name: str):
+        """安装逻辑核心"""
         try:
-            zip_path = await self.installer.create_plugin_zip(plugin['path'])
+            zip_path = await self.installer.create_plugin_zip(path)
             if not zip_path:
-                await event.send(event.plain_result("插件打包失败"))
+                await self._send_install_result(event, {"success": False, "error": "插件打包失败"})
                 return
 
-            result = await self.installer.install_plugin(zip_path, plugin['name'])
-
+            result = await self.installer.install_plugin(zip_path, name)
             try:
                 os.remove(zip_path)
             except:
                 pass
-
-            if result.get("success"):
-                await event.send(event.plain_result(f"✅ 插件安装成功！\n插件名称：{result.get('plugin_name', plugin['name'])}"))
-            else:
-                await event.send(event.plain_result(f"❌ 插件安装失败：{result.get('error', '未知错误')}"))
-
+            await self._send_install_result(event, result)
         except Exception as e:
             self.logger.error(f"安装插件时出错: {e}")
-            await event.send(event.plain_result(f"安装失败：{str(e)}"))
+            await self._send_install_result(event, {"success": False, "error": str(e)})
 
-    @filter.command("插件帮助", alias={"plugin_help"})
-    async def show_help(self, event: AstrMessageEvent):
-        """显示插件帮助信息"""
-        help_text = """📖 插件上传安装器帮助
-
-【插件管理】
-  /插件列表       - 查看本地可用插件
-  /选择插件 [序号] - 选择并安装插件
-  /卸载插件 <名称> - 卸载已安装的插件
-
-【其他方式】
-  /上传插件       - 上传 ZIP 文件安装
-  /安装插件 <路径> - 从指定路径安装
-  /插件帮助       - 显示此帮助
-
-【使用流程】
-1. 在插件配置中填写 API 密码
-2. 使用 /插件列表 查看可用插件
-3. 使用 /选择插件 序号 进行安装
-
-【注意事项】
-- 仅管理员可以使用此功能
-- 默认地址：localhost:6185"""
-        await event.send(event.plain_result(help_text))
+    async def _send_install_result(self, event: AstrMessageEvent, result: dict):
+        """发送安装结果辅助方法"""
+        if result.get("success"):
+            await event.send(event.plain_result(f"✅ 插件安装成功！\n插件名称：{result.get('plugin_name', '未知')}"))
+        else:
+            await event.send(event.plain_result(f"❌ 插件安装失败：{result.get('error', '未知错误')}"))
 
     async def terminate(self):
         """插件卸载时调用"""
