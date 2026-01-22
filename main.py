@@ -294,17 +294,17 @@ class PluginUploadPlugin(Star):
         """列出本地可用的插件"""
         # 检查管理员权限
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
         plugins = self._get_available_plugins()
 
         if not plugins:
-            yield event.plain_result(
+            await event.send(event.plain_result(
                 f"未找到可用插件\n"
                 f"插件目录：{self.plugins_path}\n"
                 f"请将插件文件夹放入该目录"
-            )
+            ))
             return
 
         result_lines = ["📦 本地可用插件列表：\n"]
@@ -312,8 +312,58 @@ class PluginUploadPlugin(Star):
             desc = f" - {plugin['desc']}" if plugin['desc'] else ""
             result_lines.append(f"{i}. {plugin['name']}{desc}")
 
-        result_lines.append(f"\n使用 /选择插件 <序号> 来安装插件")
-        yield event.plain_result("\n".join(result_lines))
+        result_lines.append(f"\n请直接回复序号进行安装（回复 0 取消）")
+
+        message_result = event.plain_result("\n".join(result_lines))
+        await event.send(message_result)
+
+        # 进入等待模式，复用选择逻辑
+        @session_waiter(timeout=60, record_history_chains=False)
+        async def plugin_selection_waiter(controller: SessionController, event: AstrMessageEvent):
+            try:
+                user_input = event.message_str.strip()
+
+                if user_input == "0" or user_input.lower() == "q":
+                    message_result = event.make_result()
+                    message_result.chain = [Comp.Plain("操作已取消")]
+                    await event.send(message_result)
+                    controller.stop()
+                    return
+
+                try:
+                    idx = int(user_input) - 1
+                    if 0 <= idx < len(plugins):
+                        selected = plugins[idx]
+                        await self._do_install_plugin(event, selected, controller)
+                    else:
+                        message_result = event.make_result()
+                        message_result.chain = [Comp.Plain("无效的序号，请重新输入（输入 0 取消）")]
+                        await event.send(message_result)
+                        controller.keep(timeout=60, reset_timeout=True)
+                except ValueError:
+                    # 如果输入的不是数字，可能是其他指令，停止等待以免干扰
+                    # 或者提示输入数字。为了体验，这里选择忽略非数字输入或提示
+                    # 考虑到用户可能想执行其他命令，如果不是数字，我们可以停止等待
+                    # 但为了防止误操作，还是提示一下比较好，或者静默退出？
+                    # 按照惯例，提示输入数字
+                    message_result = event.make_result()
+                    message_result.chain = [Comp.Plain("请输入有效的数字序号")]
+                    await event.send(message_result)
+                    controller.keep(timeout=60, reset_timeout=True)
+            except Exception as e:
+                self.logger.error(f"选择插件时出错: {e}")
+                message_result = event.make_result()
+                message_result.chain = [Comp.Plain(f"发生错误: {str(e)}")]
+                await event.send(message_result)
+                controller.stop()
+
+        try:
+            await plugin_selection_waiter(event)
+        except Exception as e:
+            self.logger.error(f"插件列表交互错误: {e}")
+            await event.send(event.plain_result(f"发生错误：{str(e)}"))
+        finally:
+            event.stop_event()
 
     @filter.command("选择插件", alias={"select_plugin", "sp"})
     async def select_plugin_command(self, event: AstrMessageEvent, index: str = ""):
