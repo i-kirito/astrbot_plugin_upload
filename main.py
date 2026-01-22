@@ -31,10 +31,43 @@ class PluginUploadPlugin(Star):
         self.config = config
         self.logger = logger
 
-        # 获取插件目录路径
-        self.plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        self.plugins_path = os.path.join(self.plugin_dir, "plugins")
-        self.credentials_file = os.path.join(self.plugin_dir, ".credentials.json")
+        # === 数据持久化配置 ===
+        # 设定数据目录: data/astrbot_plugin_upload/
+        # 这样更新插件本身时，数据目录不会被删除
+        self.data_root = os.path.join(os.getcwd(), "data", "astrbot_plugin_upload")
+        if not os.path.exists(self.data_root):
+            try:
+                os.makedirs(self.data_root, exist_ok=True)
+            except Exception as e:
+                self.logger.error(f"创建数据目录失败: {e}")
+
+        # 1. 待上传插件仓库目录: data/astrbot_plugin_upload/repo/
+        self.plugins_path = os.path.join(self.data_root, "repo")
+        if not os.path.exists(self.plugins_path):
+            os.makedirs(self.plugins_path, exist_ok=True)
+
+        # 2. 凭据文件: data/astrbot_plugin_upload/credentials.json
+        self.credentials_file = os.path.join(self.data_root, "credentials.json")
+
+        # === 兼容性迁移 ===
+        # 检查旧位置的凭据，如果存在则迁移到新位置
+        old_plugin_dir = os.path.dirname(os.path.abspath(__file__))
+        old_cred_file = os.path.join(old_plugin_dir, ".credentials.json")
+        if os.path.exists(old_cred_file) and not os.path.exists(self.credentials_file):
+            try:
+                import shutil
+                shutil.copy2(old_cred_file, self.credentials_file)
+                self.logger.info(f"✅ 已自动将凭据迁移至数据目录: {self.credentials_file}")
+                # 可选：重命名旧文件作为备份
+                os.rename(old_cred_file, old_cred_file + ".bak")
+            except Exception as e:
+                self.logger.warning(f"迁移旧凭据失败: {e}")
+
+        # 检查旧位置的 plugins 目录，如果有文件提示用户
+        old_plugins_path = os.path.join(old_plugin_dir, "plugins")
+        if os.path.exists(old_plugins_path) and os.listdir(old_plugins_path):
+            # 仅记录日志，不自动移动文件，防止误操作
+            self.logger.info(f"提示：检测到旧插件目录 {old_plugins_path} 中有文件，建议手动移动到 {self.plugins_path}")
 
         # 加载持久化的凭据
         self._load_credentials()

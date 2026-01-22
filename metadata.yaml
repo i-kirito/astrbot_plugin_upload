@@ -2,7 +2,7 @@ name: astrbot_plugin_upload
 display_name: 插件上传安装器
 author: ikirito
 description: AstrBot 插件上传安装器，支持检索本地插件并上传安装
-version: 1.1.0
+version: 1.1.1
 repo: https://github.com/ikirito/astrbot_plugin_upload
 dependencies:
   - aiohttp>=3.0.0
