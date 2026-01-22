@@ -490,15 +490,15 @@ class PluginUploadPlugin(Star):
         """执行插件安装（直接模式）"""
         # 检查是否已配置凭据
         if not self._is_configured():
-            yield event.plain_result("尚未配置 AstrBot 凭据\n请先使用 /配置凭据 命令进行配置")
+            await event.send(event.plain_result("尚未配置 AstrBot 凭据\n请先使用 /配置凭据 命令进行配置"))
             return
 
-        yield event.plain_result(f"正在安装插件：{plugin['name']}...")
+        await event.send(event.plain_result(f"正在安装插件：{plugin['name']}..."))
 
         try:
             zip_path = await self.installer.create_plugin_zip(plugin['path'])
             if not zip_path:
-                yield event.plain_result("插件打包失败")
+                await event.send(event.plain_result("插件打包失败"))
                 return
 
             result = await self.installer.install_plugin(zip_path, plugin['name'])
@@ -509,27 +509,27 @@ class PluginUploadPlugin(Star):
                 pass
 
             if result.get("success"):
-                yield event.plain_result(f"✅ 插件安装成功！\n插件名称：{result.get('plugin_name', plugin['name'])}")
+                await event.send(event.plain_result(f"✅ 插件安装成功！\n插件名称：{result.get('plugin_name', plugin['name'])}"))
             else:
-                yield event.plain_result(f"❌ 插件安装失败：{result.get('error', '未知错误')}")
+                await event.send(event.plain_result(f"❌ 插件安装失败：{result.get('error', '未知错误')}"))
 
         except Exception as e:
             self.logger.error(f"安装插件时出错: {e}")
-            yield event.plain_result(f"安装失败：{str(e)}")
+            await event.send(event.plain_result(f"安装失败：{str(e)}"))
 
     @filter.command("配置凭据", alias={"config_credentials", "set_auth"})
     async def config_credentials_command(self, event: AstrMessageEvent):
         """配置 AstrBot API 凭据"""
         # 检查管理员权限
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
         current_url = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
         current_user = self.saved_credentials.get("api_username", "astrbot")
         has_password = "已配置" if self.saved_credentials.get("api_password_md5") else "未配置"
 
-        yield event.plain_result(
+        await event.send(event.plain_result(
             f"当前配置：\n"
             f"  地址：{current_url}\n"
             f"  用户：{current_user}\n"
@@ -537,7 +537,7 @@ class PluginUploadPlugin(Star):
             f"请输入新的配置（格式：地址 用户名 密码）\n"
             f"例如：http://localhost:6185 astrbot mypassword\n"
             f"输入 0 取消配置"
-        )
+        ))
 
         # 临时存储配置步骤
         config_state = {"step": "all_in_one"}
@@ -628,7 +628,7 @@ class PluginUploadPlugin(Star):
             await credentials_waiter(event)
         except Exception as e:
             self.logger.error(f"凭据配置错误: {e}")
-            yield event.plain_result(f"发生错误：{str(e)}")
+            await event.send(event.plain_result(f"发生错误：{str(e)}"))
         finally:
             event.stop_event()
 
@@ -637,7 +637,7 @@ class PluginUploadPlugin(Star):
         """查看当前凭据配置"""
         # 检查管理员权限
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
         current_url = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
@@ -647,7 +647,7 @@ class PluginUploadPlugin(Star):
         plugins = self._get_available_plugins()
         plugin_count = len(plugins)
 
-        yield event.plain_result(
+        await event.send(event.plain_result(
             f"📋 当前配置信息：\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"🌐 AstrBot 地址：{current_url}\n"
@@ -656,7 +656,7 @@ class PluginUploadPlugin(Star):
             f"📦 本地插件数：{plugin_count} 个\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"插件目录：{self.plugins_path}"
-        )
+        ))
 
     @filter.command("插件帮助", alias={"plugin_help"})
     async def show_help(self, event: AstrMessageEvent):
@@ -686,7 +686,7 @@ class PluginUploadPlugin(Star):
 - 仅管理员可以使用此功能
 - 凭据配置会持久化保存到本地
 - 默认地址：localhost:6185"""
-        yield event.plain_result(help_text)
+        await event.send(event.plain_result(help_text))
 
     async def terminate(self):
         """插件卸载时调用"""
