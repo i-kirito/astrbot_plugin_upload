@@ -333,13 +333,13 @@ class PluginUploadPlugin(Star):
         """
         # 检查管理员权限
         if not self._check_admin_permission(event):
-            yield event.plain_result("仅管理员可以使用此功能")
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
         plugins = self._get_available_plugins()
 
         if not plugins:
-            yield event.plain_result("未找到可用插件，请先使用 /插件列表 查看")
+            await event.send(event.plain_result("未找到可用插件，请先使用 /插件列表 查看"))
             return
 
         if not index:
@@ -349,7 +349,8 @@ class PluginUploadPlugin(Star):
                 desc = f" - {plugin['desc']}" if plugin['desc'] else ""
                 result_lines.append(f"{i}. {plugin['name']}{desc}")
 
-            yield event.plain_result("\n".join(result_lines))
+            message_result = event.plain_result("\n".join(result_lines))
+            await event.send(message_result)
 
             # 使用会话等待用户选择
             @session_waiter(timeout=60, record_history_chains=False)
@@ -390,7 +391,7 @@ class PluginUploadPlugin(Star):
                 await plugin_selection_waiter(event)
             except Exception as e:
                 self.logger.error(f"插件选择错误: {e}")
-                yield event.plain_result(f"发生错误：{str(e)}")
+                await event.send(event.plain_result(f"发生错误：{str(e)}"))
             finally:
                 event.stop_event()
         else:
@@ -401,9 +402,9 @@ class PluginUploadPlugin(Star):
                     selected = plugins[idx]
                     await self._do_install_plugin_direct(event, selected)
                 else:
-                    yield event.plain_result(f"无效的序号：{index}")
+                    await event.send(event.plain_result(f"无效的序号：{index}"))
             except ValueError:
-                yield event.plain_result("请输入有效的数字序号")
+                await event.send(event.plain_result("请输入有效的数字序号"))
 
     async def _do_install_plugin(self, event: AstrMessageEvent, plugin: dict, controller: SessionController):
         """执行插件安装（会话模式）"""
