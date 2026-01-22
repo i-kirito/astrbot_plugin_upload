@@ -106,6 +106,83 @@ class PluginInstaller:
             self.logger.error(f"插件打包失败: {str(e)}")
             return None
             
+    async def install_from_url(self, url: str) -> Dict[str, Any]:
+        """从 URL 安装插件
+
+        Args:
+            url: 插件 ZIP 下载链接或 GitHub 仓库链接
+
+        Returns:
+            Dict[str, Any]: 安装结果
+        """
+        # 处理 GitHub 仓库链接，自动转换为 ZIP 下载链接
+        if "github.com" in url and not url.endswith(".zip"):
+            if url.endswith(".git"):
+                url = url[:-4]
+
+            # 移除末尾斜杠
+            url = url.rstrip("/")
+
+            # 如果是仓库根目录，追加 archive/refs/heads/main.zip
+            # 这里简单假设主分支是 main 或 master，尝试 main
+            # 更稳妥的是让用户提供 zip 链接，或者尝试探测
+            # 暂时默认追加 /archive/refs/heads/main.zip
+            if "/archive/" not in url and "/releases/" not in url:
+                url = f"{url}/archive/refs/heads/main.zip"
+                self.logger.info(f"尝试从 GitHub 主分支下载: {url}")
+
+        try:
+            import aiohttp
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+                zip_path = tmp_file.name
+
+            self.logger.info(f"正在下载插件: {url}")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        # 尝试 master 分支
+                        if "main.zip" in url:
+                            url = url.replace("main.zip", "master.zip")
+                            self.logger.info(f"main 分支下载失败，尝试 master 分支: {url}")
+                            async with session.get(url) as resp2:
+                                if resp2.status != 200:
+                                    return {
+                                        "success": False,
+                                        "error": f"下载失败: {resp.status}"
+                                    }
+                                content = await resp2.read()
+                        else:
+                            return {
+                                "success": False,
+                                "error": f"下载失败: {resp.status}"
+                            }
+                    else:
+                        content = await resp.read()
+
+            with open(zip_path, 'wb') as f:
+                f.write(content)
+
+            # 调用现有的安装方法
+            result = await self.install_plugin(zip_path)
+
+            # 清理临时文件
+            try:
+                os.remove(zip_path)
+            except:
+                pass
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"从 URL 安装失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     async def install_plugin(self, zip_path: str, plugin_name: Optional[str] = None) -> Dict[str, Any]:
         """通过API安装插件
         
