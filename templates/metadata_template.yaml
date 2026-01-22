@@ -1,6 +1,0 @@
-name: {plugin_name}
-author: {author}
-description: {description}
-version: {version}
-repo_url: {repo_url}
-dependencies: {dependencies}

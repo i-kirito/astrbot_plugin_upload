@@ -129,3 +129,5 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+.credentials.json
+plugins/

@@ -1,9 +1,8 @@
-name: astrbot_plugin_codemage
-display_name: 插件生成器
-author: qa296
-description: 一个基于AI的 AstrBot 插件生成器，可以根据自然语言描述自动生成完整的 AstrBot 插件。
-version: 1.0.0
-repo: https://github.com/qa296/astrbot_plugin_codemage
+name: astrbot_plugin_upload
+display_name: 插件上传安装器
+author: ikirito
+description: AstrBot 插件上传安装器，支持检索本地插件并上传安装
+version: 1.1.0
+repo: https://github.com/ikirito/astrbot_plugin_upload
 dependencies:
-  - openai>=1.0.0
-  - pydantic>=2.0.0
+  - aiohttp>=3.0.0
