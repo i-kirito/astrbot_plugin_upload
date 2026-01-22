@@ -17,10 +17,11 @@
         "hint": "AstrBot API的登录用户名",
         "default": "astrbot"
     },
-    "api_password_md5": {
-        "description": "API密码(MD5)",
+    "api_password": {
+        "description": "API密码",
         "type": "string",
-        "hint": "AstrBot API的登录密码（MD5加密后的值）",
-        "default": ""
+        "hint": "AstrBot API的登录密码（直接填写明文即可）",
+        "default": "",
+        "secret": true
     }
 }

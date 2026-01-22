@@ -46,81 +46,39 @@ class PluginUploadPlugin(Star):
         if not os.path.exists(self.plugins_path):
             os.makedirs(self.plugins_path, exist_ok=True)
 
-        # 2. 凭据文件: data/astrbot_plugin_upload/credentials.json
-        self.credentials_file = os.path.join(self.data_root, "credentials.json")
-
-        # === 兼容性迁移 ===
-        # 检查旧位置的凭据，如果存在则迁移到新位置
-        old_plugin_dir = os.path.dirname(os.path.abspath(__file__))
-        old_cred_file = os.path.join(old_plugin_dir, ".credentials.json")
-        if os.path.exists(old_cred_file) and not os.path.exists(self.credentials_file):
-            try:
-                import shutil
-                shutil.copy2(old_cred_file, self.credentials_file)
-                self.logger.info(f"✅ 已自动将凭据迁移至数据目录: {self.credentials_file}")
-                # 可选：重命名旧文件作为备份
-                os.rename(old_cred_file, old_cred_file + ".bak")
-            except Exception as e:
-                self.logger.warning(f"迁移旧凭据失败: {e}")
-
         # 检查旧位置的 plugins 目录，如果有文件提示用户
+        old_plugin_dir = os.path.dirname(os.path.abspath(__file__))
         old_plugins_path = os.path.join(old_plugin_dir, "plugins")
         if os.path.exists(old_plugins_path) and os.listdir(old_plugins_path):
             # 仅记录日志，不自动移动文件，防止误操作
             self.logger.info(f"提示：检测到旧插件目录 {old_plugins_path} 中有文件，建议手动移动到 {self.plugins_path}")
 
-        # 加载持久化的凭据
-        self._load_credentials()
-
         # 初始化安装器
         self._init_installer()
 
-    def _load_credentials(self):
-        """从本地文件加载持久化的凭据"""
-        self.saved_credentials = {
-            "astrbot_url": "http://localhost:6185",
-            "api_username": "astrbot",
-            "api_password_md5": ""
-        }
-
-        if os.path.exists(self.credentials_file):
-            try:
-                with open(self.credentials_file, 'r', encoding='utf-8') as f:
-                    saved = json.load(f)
-                    self.saved_credentials.update(saved)
-                    self.logger.info("已加载保存的凭据配置")
-            except Exception as e:
-                self.logger.warning(f"加载凭据文件失败: {e}")
-
-    def _save_credentials(self, url: str, username: str, password_md5: str):
-        """保存凭据到本地文件"""
-        self.saved_credentials = {
-            "astrbot_url": url,
-            "api_username": username,
-            "api_password_md5": password_md5
-        }
-        try:
-            with open(self.credentials_file, 'w', encoding='utf-8') as f:
-                json.dump(self.saved_credentials, f, ensure_ascii=False, indent=2)
-            self.logger.info("凭据已保存到本地")
-        except Exception as e:
-            self.logger.error(f"保存凭据失败: {e}")
-
     def _init_installer(self):
-        """初始化安装器，优先使用保存的凭据"""
-        # 合并配置：保存的凭据优先级高于插件配置
-        merged_config = dict(self.config) if hasattr(self.config, '__iter__') else {}
+        """初始化安装器，自动处理密码 MD5"""
+        # 从配置中读取信息
+        astrbot_url = self.config.get("astrbot_url", "http://localhost:6185")
+        api_username = self.config.get("api_username", "astrbot")
+        api_password = self.config.get("api_password", "")
 
-        if self.saved_credentials.get("api_password_md5"):
-            merged_config["astrbot_url"] = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
-            merged_config["api_username"] = self.saved_credentials.get("api_username", "astrbot")
-            merged_config["api_password_md5"] = self.saved_credentials.get("api_password_md5", "")
+        # 计算密码 MD5
+        api_password_md5 = ""
+        if api_password:
+            api_password_md5 = self._md5(api_password)
 
-        self.installer = PluginInstaller(merged_config if merged_config else self.config)
+        # 构建配置供 installer 使用
+        installer_config = dict(self.config) if hasattr(self.config, '__iter__') else {}
+        installer_config["astrbot_url"] = astrbot_url
+        installer_config["api_username"] = api_username
+        installer_config["api_password_md5"] = api_password_md5
+
+        self.installer = PluginInstaller(installer_config)
 
     def _is_configured(self) -> bool:
         """检查是否已配置凭据"""
-        return bool(self.saved_credentials.get("api_password_md5")) or bool(self.config.get("api_password_md5"))
+        return bool(self.config.get("api_password"))
 
     def _get_available_plugins(self) -> list:
         """获取 plugins 目录下的可用插件列表"""
@@ -517,147 +475,6 @@ class PluginUploadPlugin(Star):
             self.logger.error(f"安装插件时出错: {e}")
             await event.send(event.plain_result(f"安装失败：{str(e)}"))
 
-    @filter.command("配置凭据", alias={"config_credentials", "set_auth"})
-    async def config_credentials_command(self, event: AstrMessageEvent):
-        """配置 AstrBot API 凭据"""
-        # 检查管理员权限
-        if not self._check_admin_permission(event):
-            await event.send(event.plain_result("仅管理员可以使用此功能"))
-            return
-
-        current_url = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
-        current_user = self.saved_credentials.get("api_username", "astrbot")
-        has_password = "已配置" if self.saved_credentials.get("api_password_md5") else "未配置"
-
-        await event.send(event.plain_result(
-            f"当前配置：\n"
-            f"  地址：{current_url}\n"
-            f"  用户：{current_user}\n"
-            f"  密码：{has_password}\n\n"
-            f"请输入新的配置（格式：地址 用户名 密码）\n"
-            f"例如：http://localhost:6185 astrbot mypassword\n"
-            f"输入 0 取消配置"
-        ))
-
-        # 临时存储配置步骤
-        config_state = {"step": "all_in_one"}
-
-        @session_waiter(timeout=120, record_history_chains=False)
-        async def credentials_waiter(controller: SessionController, event: AstrMessageEvent):
-            try:
-                user_input = event.message_str.strip()
-
-                if user_input == "0" or user_input.lower() == "q":
-                    message_result = event.make_result()
-                    message_result.chain = [Comp.Plain("配置已取消")]
-                    await event.send(message_result)
-                    controller.stop()
-                    return
-
-                # 解析输入：地址 用户名 密码
-                parts = user_input.split()
-
-                if len(parts) >= 3:
-                    url = parts[0]
-                    username = parts[1]
-                    password = " ".join(parts[2:])  # 密码可能包含空格
-
-                    # 确保 URL 格式正确
-                    if not url.startswith("http://") and not url.startswith("https://"):
-                        url = "http://" + url
-
-                    # 计算密码 MD5
-                    password_md5 = self._md5(password)
-
-                    # 保存凭据
-                    self._save_credentials(url, username, password_md5)
-
-                    # 重新初始化安装器
-                    self._init_installer()
-
-                    message_result = event.make_result()
-                    message_result.chain = [Comp.Plain(
-                        f"✅ 凭据配置成功！\n"
-                        f"  地址：{url}\n"
-                        f"  用户：{username}\n"
-                        f"  密码：已保存\n\n"
-                        f"凭据已持久化保存，下次启动自动加载"
-                    )]
-                    await event.send(message_result)
-                    controller.stop()
-
-                elif len(parts) == 1:
-                    # 可能只输入了密码，使用默认地址和用户名
-                    password = parts[0]
-                    url = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
-                    username = self.saved_credentials.get("api_username", "astrbot")
-                    password_md5 = self._md5(password)
-
-                    self._save_credentials(url, username, password_md5)
-                    self._init_installer()
-
-                    message_result = event.make_result()
-                    message_result.chain = [Comp.Plain(
-                        f"✅ 凭据配置成功！\n"
-                        f"  地址：{url}\n"
-                        f"  用户：{username}\n"
-                        f"  密码：已保存"
-                    )]
-                    await event.send(message_result)
-                    controller.stop()
-
-                else:
-                    message_result = event.make_result()
-                    message_result.chain = [Comp.Plain(
-                        "格式错误，请按以下格式输入：\n"
-                        "  完整格式：地址 用户名 密码\n"
-                        "  快捷格式：仅输入密码（使用默认地址和用户名）\n"
-                        "输入 0 取消"
-                    )]
-                    await event.send(message_result)
-                    controller.keep(timeout=120, reset_timeout=True)
-
-            except Exception as e:
-                self.logger.error(f"配置凭据时出错: {e}")
-                message_result = event.make_result()
-                message_result.chain = [Comp.Plain(f"发生错误: {str(e)}")]
-                await event.send(message_result)
-                controller.stop()
-
-        try:
-            await credentials_waiter(event)
-        except Exception as e:
-            self.logger.error(f"凭据配置错误: {e}")
-            await event.send(event.plain_result(f"发生错误：{str(e)}"))
-        finally:
-            event.stop_event()
-
-    @filter.command("查看配置", alias={"show_config", "config_info"})
-    async def show_config_command(self, event: AstrMessageEvent):
-        """查看当前凭据配置"""
-        # 检查管理员权限
-        if not self._check_admin_permission(event):
-            await event.send(event.plain_result("仅管理员可以使用此功能"))
-            return
-
-        current_url = self.saved_credentials.get("astrbot_url", "http://localhost:6185")
-        current_user = self.saved_credentials.get("api_username", "astrbot")
-        has_password = "✅ 已配置" if self.saved_credentials.get("api_password_md5") else "❌ 未配置"
-
-        plugins = self._get_available_plugins()
-        plugin_count = len(plugins)
-
-        await event.send(event.plain_result(
-            f"📋 当前配置信息：\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"🌐 AstrBot 地址：{current_url}\n"
-            f"👤 用户名：{current_user}\n"
-            f"🔐 密码状态：{has_password}\n"
-            f"📦 本地插件数：{plugin_count} 个\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"插件目录：{self.plugins_path}"
-        ))
-
     @filter.command("插件帮助", alias={"plugin_help"})
     async def show_help(self, event: AstrMessageEvent):
         """显示插件帮助信息"""
@@ -668,23 +485,18 @@ class PluginUploadPlugin(Star):
   /选择插件 [序号] - 选择并安装插件
   /卸载插件 <名称> - 卸载已安装的插件
 
-【凭据配置】
-  /配置凭据       - 配置 AstrBot API 凭据
-  /查看配置       - 查看当前配置信息
-
 【其他方式】
   /上传插件       - 上传 ZIP 文件安装
   /安装插件 <路径> - 从指定路径安装
   /插件帮助       - 显示此帮助
 
 【使用流程】
-1. 首次使用请先 /配置凭据 设置账号密码
+1. 在插件配置中填写 API 密码
 2. 使用 /插件列表 查看可用插件
 3. 使用 /选择插件 序号 进行安装
 
 【注意事项】
 - 仅管理员可以使用此功能
-- 凭据配置会持久化保存到本地
 - 默认地址：localhost:6185"""
         await event.send(event.plain_result(help_text))
 
