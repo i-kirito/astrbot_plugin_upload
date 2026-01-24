@@ -301,8 +301,8 @@ class PluginUploadPlugin(Star):
 
     @filter.command("插件更新", alias={"update_plugin", "plugin_update"})
     async def update_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
-        """更新插件 (针对本地 Repo 中的插件)
-        不带参数则更新所有插件
+        """更新插件
+        不带参数则更新市场所有插件
         """
         if not self._check_admin_permission(event):
             await event.send(event.plain_result("仅管理员可以使用此功能"))
@@ -312,23 +312,46 @@ class PluginUploadPlugin(Star):
             # 更新指定插件
             await self._update_single_plugin_logic(event, plugin_name)
         else:
-            # 批量更新所有插件
-            plugins = self._get_available_plugins()
-            if not plugins:
-                await event.send(event.plain_result("本地仓库中没有可更新的插件"))
+            # 批量更新市场所有插件
+            await event.send(event.plain_result("🌐 正在获取插件市场列表..."))
+
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("https://api.github.com/users/i-kirito/repos") as resp:
+                        if resp.status != 200:
+                            await event.send(event.plain_result(f"❌ 获取失败: HTTP {resp.status}"))
+                            return
+                        repos = await resp.json()
+            except Exception as e:
+                await event.send(event.plain_result(f"❌ 网络请求失败: {e}"))
                 return
 
-            await event.send(event.plain_result(f"🔄 开始批量更新 {len(plugins)} 个插件..."))
+            market_plugins = []
+            for repo in repos:
+                if isinstance(repo, dict) and repo.get("name", "").startswith("astrbot_plugin_"):
+                    market_plugins.append({
+                        "name": repo["name"],
+                        "url": repo["html_url"],
+                        "desc": repo.get("description", "无描述")
+                    })
+
+            if not market_plugins:
+                await event.send(event.plain_result("📭 市场中未发现任何 AstrBot 插件"))
+                return
+
+            await event.send(event.plain_result(f"🔄 开始批量更新市场中的 {len(market_plugins)} 个插件..."))
 
             success_list = []
             fail_list = []
 
-            for plugin in plugins:
+            for plugin in market_plugins:
                 name = plugin['name']
-                path = plugin['path']
+                url = plugin['url']
 
                 try:
-                    result = await self._perform_plugin_update(name, path)
+                    # 使用 install_from_url 进行更新
+                    result = await self.installer.install_from_url(url)
                     if result.get("success"):
                         success_list.append(name)
                     else:
@@ -337,7 +360,7 @@ class PluginUploadPlugin(Star):
                     fail_list.append(f"{name} ({str(e)})")
 
             # 汇总报告
-            msg = f"📊 批量更新完成\n"
+            msg = f"📊 市场插件批量更新完成\n"
             if success_list:
                 msg += f"✅ 成功 ({len(success_list)}): {', '.join(success_list)}\n"
             if fail_list:
