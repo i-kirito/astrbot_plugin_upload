@@ -156,7 +156,11 @@ class PluginUploadPlugin(Star):
 
         try:
             import aiohttp
-            async with aiohttp.ClientSession() as session:
+            headers = {
+                "User-Agent": "AstrBot-Plugin-Upload",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            async with aiohttp.ClientSession(headers=headers) as session:
                 async with session.get("https://api.github.com/users/i-kirito/repos") as resp:
                     if resp.status != 200:
                         await event.send(event.plain_result(f"❌ 获取失败: HTTP {resp.status}"))
@@ -317,7 +321,11 @@ class PluginUploadPlugin(Star):
 
             try:
                 import aiohttp
-                async with aiohttp.ClientSession() as session:
+                headers = {
+                    "User-Agent": "AstrBot-Plugin-Upload",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                async with aiohttp.ClientSession(headers=headers) as session:
                     async with session.get("https://api.github.com/users/i-kirito/repos") as resp:
                         if resp.status != 200:
                             await event.send(event.plain_result(f"❌ 获取失败: HTTP {resp.status}"))
