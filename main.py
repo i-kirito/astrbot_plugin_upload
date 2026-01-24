@@ -144,6 +144,107 @@ class PluginUploadPlugin(Star):
 
         return False
 
+    @filter.command("插件市场", alias={"plugin_market", "market"})
+    async def market_command(self, event: AstrMessageEvent, index: str = ""):
+        """浏览并安装 i-kirito 的 AstrBot 插件"""
+        if not self._check_admin_permission(event):
+            await event.send(event.plain_result("仅管理员可以使用此功能"))
+            return
+
+        # 获取远程插件列表
+        await event.send(event.plain_result("🌐 正在获取插件市场列表..."))
+
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.github.com/users/i-kirito/repos") as resp:
+                    if resp.status != 200:
+                        await event.send(event.plain_result(f"❌ 获取失败: HTTP {resp.status}"))
+                        return
+                    repos = await resp.json()
+        except Exception as e:
+            await event.send(event.plain_result(f"❌ 网络请求失败: {e}"))
+            return
+
+        # 筛选插件
+        market_plugins = []
+        for repo in repos:
+            if isinstance(repo, dict) and repo.get("name", "").startswith("astrbot_plugin_"):
+                market_plugins.append({
+                    "name": repo["name"],
+                    "url": repo["html_url"],
+                    "desc": repo.get("description", "无描述")
+                })
+
+        if not market_plugins:
+            await event.send(event.plain_result("📭 未发现任何 AstrBot 插件仓库"))
+            return
+
+        # 如果直接带了参数
+        if index:
+            try:
+                idx = int(index) - 1
+                if 0 <= idx < len(market_plugins):
+                    selected = market_plugins[idx]
+                    await event.send(event.plain_result(f"🚀 正在从市场安装: {selected['name']}"))
+
+                    # 复用 URL 安装逻辑
+                    result = await self.installer.install_from_url(selected['url'])
+                    await self._send_install_result(event, result)
+                    return
+                else:
+                    await event.send(event.plain_result(f"❌ 无效的序号：{index}"))
+                    return
+            except ValueError:
+                pass
+
+        # 显示列表
+        result_lines = ["🏪 i-kirito 插件市场：\n"]
+        for i, plugin in enumerate(market_plugins, 1):
+            desc = f" - {plugin['desc']}" if plugin['desc'] else ""
+            result_lines.append(f"{i}. {plugin['name']}{desc}")
+
+        result_lines.append(f"\n请直接回复序号进行安装（回复 0 取消）")
+
+        await event.send(event.plain_result("\n".join(result_lines)))
+
+        # 进入等待模式
+        @session_waiter(timeout=60, record_history_chains=False)
+        async def market_selection_waiter(controller: SessionController, event: AstrMessageEvent):
+            try:
+                user_input = event.message_str.strip()
+                if user_input == "0" or user_input.lower() == "q":
+                    await event.send(event.plain_result("操作已取消"))
+                    controller.stop()
+                    return
+
+                try:
+                    idx = int(user_input) - 1
+                    if 0 <= idx < len(market_plugins):
+                        selected = market_plugins[idx]
+                        await event.send(event.plain_result(f"🚀 正在安装: {selected['name']}..."))
+
+                        # URL 安装
+                        install_res = await self.installer.install_from_url(selected['url'])
+                        await self._send_install_result(event, install_res)
+                        controller.stop()
+                    else:
+                        await event.send(event.plain_result("❌ 无效序号，请重试"))
+                        controller.keep(timeout=60, reset_timeout=True)
+                except ValueError:
+                    await event.send(event.plain_result("❌ 请输入数字序号"))
+                    controller.keep(timeout=60, reset_timeout=True)
+            except Exception as e:
+                self.logger.error(f"市场交互错误: {e}")
+                controller.stop()
+
+        try:
+            await market_selection_waiter(event)
+        except Exception as e:
+            self.logger.error(f"市场会话错误: {e}")
+        finally:
+            event.stop_event()
+
     @filter.command("插件安装", alias={"install_plugin", "plugin_install"})
     async def install_plugin_command(self, event: AstrMessageEvent, arg: str = ""):
         """安装插件 (支持 ZIP/URL/本地路径)
