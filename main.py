@@ -23,7 +23,7 @@ from .installer import PluginInstaller
     "astrbot_plugin_upload",
     "ikirito",
     "AstrBot 插件上传安装器，支持检索本地插件并上传安装",
-    "1.3.1",
+    "1.3.2",
     "https://github.com/ikirito/astrbot_plugin_upload",
 )
 class PluginUploadPlugin(Star):
@@ -295,30 +295,9 @@ class PluginUploadPlugin(Star):
             await event.send(event.plain_result(f"🌐 正在从 URL 下载并安装: {arg}"))
             result = await self.installer.install_from_url(arg)
             await self._send_install_result(event, result)
-
         else:
-            # 本地路径安装
-            if not os.path.exists(arg):
-                await event.send(event.plain_result(f"❌ 路径不存在: {arg}"))
-                return
-
-            if not os.path.isdir(arg):
-                await event.send(event.plain_result("❌ 请提供插件目录路径，而非文件路径"))
-                return
-
-            await event.send(event.plain_result(f"📂 正在从本地路径安装: {arg}"))
-            zip_path = await self.installer.create_plugin_zip(arg)
-            if not zip_path:
-                await event.send(event.plain_result("❌ 插件打包失败"))
-                return
-
-            plugin_name = os.path.basename(os.path.normpath(arg))
-            result = await self.installer.install_plugin(zip_path, plugin_name)
-            try:
-                os.remove(zip_path)
-            except:
-                pass
-            await self._send_install_result(event, result)
+            # 不支持的输入
+            await event.send(event.plain_result("❌ 请输入有效的 GitHub 链接或直接发送 ZIP 文件"))
 
     @filter.command("插件更新", alias={"update_plugin", "plugin_update"})
     async def update_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
@@ -347,8 +326,6 @@ class PluginUploadPlugin(Star):
             for plugin in plugins:
                 name = plugin['name']
                 path = plugin['path']
-                # 简单的日志反馈，避免刷屏
-                # await event.send(event.plain_result(f"正在更新: {name}..."))
 
                 try:
                     result = await self._perform_plugin_update(name, path)
