@@ -23,7 +23,7 @@ from .installer import PluginInstaller
     "astrbot_plugin_upload",
     "ikirito",
     "AstrBot 插件上传安装器，支持检索本地插件并上传安装",
-    "1.2.2",
+    "1.3.1",
     "https://github.com/ikirito/astrbot_plugin_upload",
 )
 class PluginUploadPlugin(Star):
@@ -529,26 +529,30 @@ class PluginUploadPlugin(Star):
     @filter.command("插件帮助", alias={"plugin_help"})
     async def show_help(self, event: AstrMessageEvent):
         """显示插件帮助信息"""
-        help_text = """📖 插件上传安装器帮助
+        help_text = """📖 AstrBot 插件上传安装器帮助
 
-【指令列表】
-  /插件安装 [ZIP/URL/路径]  - 智能安装插件
-  /插件更新 <名称>          - 更新本地插件 (支持Git)
-  /插件列表 [序号]          - 查看/安装本地插件
-  /卸载插件 <名称>          - 卸载已安装的插件
-  /插件帮助                 - 显示此帮助
+💻 指令列表：
+  • /插件安装 [URL/ZIP/路径]
+    - 智能安装指令，支持多种来源。
+    - 示例：/插件安装 https://github.com/user/repo
 
-【使用说明】
-1. 安装 GitHub 插件：
-   /插件安装 https://github.com/user/repo
-2. 交互式安装：
-   发送 /插件列表，然后回复序号
-3. 更新插件：
-   /插件更新 astrbot_plugin_mpemby
+  • /插件市场 [序号]
+    - 浏览 i-kirito 官方插件市场。
+    - 回复序号即可一键安装。
 
-【注意事项】
-- 仅管理员可用
-- 插件库位置：data/astrbot_plugin_upload/repo/"""
+  • /插件列表 [序号]
+    - 查看本地 repo 目录下的插件。
+    - 回复序号即可安装。
+
+  • /插件更新 <名称>
+    - 更新指定插件 (支持 Git 仓库自动 Pull)。
+
+  • /卸载插件 <名称>
+    - 卸载已安装的插件。
+
+💡 提示：
+  - 仅管理员可用。
+  - 插件库位置：data/astrbot_plugin_upload/repo/"""
         await event.send(event.plain_result(help_text))
 
     async def _do_install_plugin(self, event: AstrMessageEvent, plugin: dict, controller: SessionController):
