@@ -23,7 +23,7 @@ from .installer import PluginInstaller
     "astrbot_plugin_upload",
     "ikirito",
     "AstrBot 插件上传安装器，支持检索本地插件并上传安装",
-    "1.3.2",
+    "1.3.3",
     "https://github.com/ikirito/astrbot_plugin_upload",
 )
 class PluginUploadPlugin(Star):
