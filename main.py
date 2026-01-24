@@ -221,15 +221,54 @@ class PluginUploadPlugin(Star):
 
     @filter.command("插件更新", alias={"update_plugin", "plugin_update"})
     async def update_plugin_command(self, event: AstrMessageEvent, plugin_name: str = ""):
-        """更新插件 (针对本地 Repo 中的插件)"""
+        """更新插件 (针对本地 Repo 中的插件)
+        不带参数则更新所有插件
+        """
         if not self._check_admin_permission(event):
             await event.send(event.plain_result("仅管理员可以使用此功能"))
             return
 
-        if not plugin_name:
-            await event.send(event.plain_result("请输入要更新的插件名称"))
-            return
+        if plugin_name:
+            # 更新指定插件
+            await self._update_single_plugin_logic(event, plugin_name)
+        else:
+            # 批量更新所有插件
+            plugins = self._get_available_plugins()
+            if not plugins:
+                await event.send(event.plain_result("本地仓库中没有可更新的插件"))
+                return
 
+            await event.send(event.plain_result(f"🔄 开始批量更新 {len(plugins)} 个插件..."))
+
+            success_list = []
+            fail_list = []
+
+            for plugin in plugins:
+                name = plugin['name']
+                path = plugin['path']
+                # 简单的日志反馈，避免刷屏
+                # await event.send(event.plain_result(f"正在更新: {name}..."))
+
+                try:
+                    result = await self._perform_plugin_update(name, path)
+                    if result.get("success"):
+                        success_list.append(name)
+                    else:
+                        fail_list.append(f"{name} ({result.get('error')})")
+                except Exception as e:
+                    fail_list.append(f"{name} ({str(e)})")
+
+            # 汇总报告
+            msg = f"📊 批量更新完成\n"
+            if success_list:
+                msg += f"✅ 成功 ({len(success_list)}): {', '.join(success_list)}\n"
+            if fail_list:
+                msg += f"❌ 失败 ({len(fail_list)}): {', '.join(fail_list)}"
+
+            await event.send(event.plain_result(msg.strip()))
+
+    async def _update_single_plugin_logic(self, event: AstrMessageEvent, plugin_name: str):
+        """处理单个插件更新的指令逻辑"""
         # 检查 repo 中是否存在该插件
         repo_plugin_path = os.path.join(self.plugins_path, plugin_name)
         if not os.path.exists(repo_plugin_path):
@@ -244,31 +283,29 @@ class PluginUploadPlugin(Star):
 
         await event.send(event.plain_result(f"🔄 正在更新插件: {plugin_name}"))
 
+        result = await self._perform_plugin_update(plugin_name, repo_plugin_path)
+        await self._send_install_result(event, result)
+
+    async def _perform_plugin_update(self, plugin_name: str, repo_path: str) -> dict:
+        """执行插件更新的核心逻辑 (Git Pull + Reinstall)"""
         # 1. 如果是 Git 仓库，尝试 git pull
-        if os.path.exists(os.path.join(repo_plugin_path, ".git")):
+        if os.path.exists(os.path.join(repo_path, ".git")):
             try:
                 process = await asyncio.create_subprocess_exec(
                     "git", "pull",
-                    cwd=repo_plugin_path,
+                    cwd=repo_path,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, stderr = await process.communicate()
-
-                if process.returncode == 0:
-                    self.logger.info(f"Git pull 成功: {stdout.decode()}")
-                    await event.send(event.plain_result(f"✅ Git 代码已更新"))
-                else:
-                    self.logger.warning(f"Git pull 失败: {stderr.decode()}")
-                    await event.send(event.plain_result(f"⚠️ Git 更新失败 (将尝试直接重新安装): {stderr.decode()[:50]}"))
+                await process.communicate()
+                # 这里我们不根据 git 结果中断，因为即使 git 失败，可能用户只是想重新安装
             except Exception as e:
                 self.logger.error(f"Git 更新出错: {e}")
 
         # 2. 重新打包安装
-        zip_path = await self.installer.create_plugin_zip(repo_plugin_path)
+        zip_path = await self.installer.create_plugin_zip(repo_path)
         if not zip_path:
-            await event.send(event.plain_result("❌ 更新失败：插件打包出错"))
-            return
+            return {"success": False, "error": "打包失败"}
 
         result = await self.installer.install_plugin(zip_path, plugin_name)
         try:
@@ -276,7 +313,7 @@ class PluginUploadPlugin(Star):
         except:
             pass
 
-        await self._send_install_result(event, result)
+        return result
 
     @filter.command("插件列表", alias={"list_plugins", "plugins"})
     async def list_plugins_command(self, event: AstrMessageEvent, index: str = ""):
