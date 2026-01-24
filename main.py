@@ -377,23 +377,22 @@ class PluginUploadPlugin(Star):
             await event.send(event.plain_result(msg.strip()))
 
     async def _update_single_plugin_logic(self, event: AstrMessageEvent, plugin_name: str):
-        """处理单个插件更新的指令逻辑"""
-        # 检查 repo 中是否存在该插件
-        repo_plugin_path = os.path.join(self.plugins_path, plugin_name)
-        if not os.path.exists(repo_plugin_path):
-            # 尝试模糊匹配
-            candidates = [p for p in os.listdir(self.plugins_path) if plugin_name in p and os.path.isdir(os.path.join(self.plugins_path, p))]
-            if len(candidates) == 1:
-                plugin_name = candidates[0]
-                repo_plugin_path = os.path.join(self.plugins_path, plugin_name)
-            else:
-                await event.send(event.plain_result(f"❌ 在本地仓库中未找到插件: {plugin_name}"))
-                return
+        """处理单个插件更新的指令逻辑 - 从 GitHub 市场获取并更新"""
+        # 确保插件名以 astrbot_plugin_ 开头
+        if not plugin_name.startswith("astrbot_plugin_"):
+            plugin_name = f"astrbot_plugin_{plugin_name}"
 
-        await event.send(event.plain_result(f"🔄 正在更新插件: {plugin_name}"))
+        await event.send(event.plain_result(f"🔄 正在从 GitHub 更新插件: {plugin_name}"))
 
-        result = await self._perform_plugin_update(plugin_name, repo_plugin_path)
-        await self._send_install_result(event, result)
+        # 构建 GitHub 仓库 URL
+        github_url = f"https://github.com/i-kirito/{plugin_name}"
+
+        try:
+            # 使用 install_from_url 进行更新
+            result = await self.installer.install_from_url(github_url)
+            await self._send_install_result(event, result)
+        except Exception as e:
+            await event.send(event.plain_result(f"❌ 更新失败: {str(e)}"))
 
     async def _perform_plugin_update(self, plugin_name: str, repo_path: str) -> dict:
         """执行插件更新的核心逻辑 (Git Pull + Reinstall)"""
