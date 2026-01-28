@@ -19,6 +19,117 @@ import astrbot.api.message_components as Comp
 from .installer import PluginInstaller
 
 
+async def _fetch_remote_version(repo_url: str) -> str | None:
+    """从 GitHub 获取远程插件版本号
+
+    Args:
+        repo_url: GitHub 仓库 URL
+
+    Returns:
+        str | None: 版本号字符串，失败返回 None
+    """
+    import aiohttp
+
+    # 转换为 raw URL
+    # https://github.com/i-kirito/astrbot_plugin_xxx -> https://raw.githubusercontent.com/i-kirito/astrbot_plugin_xxx/main/metadata.yaml
+    if "github.com" in repo_url:
+        repo_url = repo_url.rstrip("/")
+        if repo_url.endswith(".git"):
+            repo_url = repo_url[:-4]
+        parts = repo_url.replace("https://github.com/", "").split("/")
+        if len(parts) >= 2:
+            owner, repo = parts[0], parts[1]
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/metadata.yaml"
+    else:
+        return None
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(raw_url) as resp:
+                if resp.status != 200:
+                    # 尝试 master 分支
+                    raw_url = raw_url.replace("/main/", "/master/")
+                    async with session.get(raw_url) as resp2:
+                        if resp2.status != 200:
+                            return None
+                        content = await resp2.text()
+                else:
+                    content = await resp.text()
+
+        # 解析 YAML 获取版本
+        import yaml
+        metadata = yaml.safe_load(content)
+        return metadata.get("version", "").lstrip("v")
+    except Exception as e:
+        logger.warning(f"获取远程版本失败: {e}")
+        return None
+
+
+def _get_local_plugin_version(plugin_name: str) -> str | None:
+    """获取本地已安装插件的版本号
+
+    Args:
+        plugin_name: 插件名称
+
+    Returns:
+        str | None: 版本号字符串，失败返回 None
+    """
+    from astrbot.core.utils.astrbot_path import get_astrbot_plugin_path
+
+    plugins_dir = get_astrbot_plugin_path()
+    plugin_path = os.path.join(plugins_dir, plugin_name)
+    metadata_path = os.path.join(plugin_path, "metadata.yaml")
+
+    if not os.path.exists(metadata_path):
+        return None
+
+    try:
+        import yaml
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = yaml.safe_load(f)
+        return metadata.get("version", "").lstrip("v")
+    except Exception as e:
+        logger.warning(f"读取本地版本失败: {e}")
+        return None
+
+
+def _compare_versions(local: str, remote: str) -> int:
+    """比较版本号
+
+    Returns:
+        -1: 本地版本较旧，需要更新
+        0: 版本相同
+        1: 本地版本较新
+    """
+    if not local or not remote:
+        return -1  # 无法比较时默认更新
+
+    # 移除 v 前缀
+    local = local.lstrip("v")
+    remote = remote.lstrip("v")
+
+    try:
+        local_parts = [int(x) for x in local.split(".")]
+        remote_parts = [int(x) for x in remote.split(".")]
+
+        # 补齐长度
+        max_len = max(len(local_parts), len(remote_parts))
+        local_parts.extend([0] * (max_len - len(local_parts)))
+        remote_parts.extend([0] * (max_len - len(remote_parts)))
+
+        for l, r in zip(local_parts, remote_parts):
+            if l < r:
+                return -1
+            elif l > r:
+                return 1
+        return 0
+    except ValueError:
+        # 无法解析时直接字符串比较
+        if local == remote:
+            return 0
+        return -1
+
+
 @register(
     "astrbot_plugin_upload",
     "ikirito",
@@ -348,29 +459,48 @@ class PluginUploadPlugin(Star):
                 await event.send(event.plain_result("📭 市场中未发现任何 AstrBot 插件"))
                 return
 
-            await event.send(event.plain_result(f"🔄 开始批量更新市场中的 {len(market_plugins)} 个插件..."))
+            await event.send(event.plain_result(f"🔄 正在检查 {len(market_plugins)} 个市场插件的版本..."))
 
             success_list = []
             fail_list = []
+            skip_list = []
 
             for plugin in market_plugins:
                 name = plugin['name']
                 url = plugin['url']
 
                 try:
-                    # 使用 install_from_url 进行更新
+                    # 获取远程版本
+                    remote_version = await _fetch_remote_version(url)
+                    # 获取本地版本
+                    local_version = _get_local_plugin_version(name)
+
+                    # 比较版本
+                    if local_version and remote_version:
+                        cmp = _compare_versions(local_version, remote_version)
+                        if cmp >= 0:
+                            # 本地版本 >= 远程版本，跳过
+                            skip_list.append(f"{name} (v{local_version})")
+                            continue
+
+                    # 需要更新
                     result = await self.installer.install_from_url(url)
                     if result.get("success"):
-                        success_list.append(name)
+                        version_info = f"v{local_version} → v{remote_version}" if local_version and remote_version else "新安装"
+                        success_list.append(f"{name} ({version_info})")
                     else:
                         fail_list.append(f"{name} ({result.get('error')})")
                 except Exception as e:
                     fail_list.append(f"{name} ({str(e)})")
 
             # 汇总报告
-            msg = f"📊 市场插件批量更新完成\n"
+            msg = f"📊 市场插件更新完成\n"
             if success_list:
-                msg += f"✅ 成功 ({len(success_list)}): {', '.join(success_list)}\n"
+                msg += f"✅ 已更新 ({len(success_list)}):\n"
+                for item in success_list:
+                    msg += f"  • {item}\n"
+            if skip_list:
+                msg += f"⏭️ 已是最新 ({len(skip_list)}): {', '.join(skip_list)}\n"
             if fail_list:
                 msg += f"❌ 失败 ({len(fail_list)}): {', '.join(fail_list)}"
 
