@@ -115,6 +115,24 @@ class PluginInstaller:
         Returns:
             Dict[str, Any]: 安装结果
         """
+        from urllib.parse import urlparse
+
+        # SSRF 防护：仅允许 HTTPS 和受信任的主机
+        ALLOWED_HOSTS = {"github.com", "raw.githubusercontent.com", "gitee.com"}
+        parsed = urlparse(url)
+
+        if parsed.scheme not in {"https", "http"}:
+            return {
+                "success": False,
+                "error": "仅支持 HTTP/HTTPS 协议"
+            }
+
+        if parsed.netloc not in ALLOWED_HOSTS:
+            return {
+                "success": False,
+                "error": f"仅允许从受信任的主机安装 ({', '.join(ALLOWED_HOSTS)})"
+            }
+
         # 处理 GitHub 仓库链接，自动转换为 ZIP 下载链接
         if "github.com" in url and not url.endswith(".zip"):
             if url.endswith(".git"):

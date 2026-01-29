@@ -30,6 +30,8 @@ async def _fetch_remote_version(repo_url: str) -> str | None:
     """
     import aiohttp
 
+    raw_url = None  # 初始化变量，防止未绑定错误
+
     # 转换为 raw URL
     # https://github.com/i-kirito/astrbot_plugin_xxx -> https://raw.githubusercontent.com/i-kirito/astrbot_plugin_xxx/main/metadata.yaml
     if "github.com" in repo_url:
@@ -40,7 +42,9 @@ async def _fetch_remote_version(repo_url: str) -> str | None:
         if len(parts) >= 2:
             owner, repo = parts[0], parts[1]
             raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/metadata.yaml"
-    else:
+
+    # 如果无法解析 URL，提前返回
+    if not raw_url:
         return None
 
     try:
@@ -323,10 +327,26 @@ class PluginUploadPlugin(Star):
 
         await event.send(event.plain_result("\n".join(result_lines)))
 
+        # 保存发起操作的用户ID，用于会话身份验证
+        initiator_id = str(event.get_sender_id())
+
         # 进入等待模式
         @session_waiter(timeout=60, record_history_chains=False)
         async def market_selection_waiter(controller: SessionController, event: AstrMessageEvent):
             try:
+                # 验证响应者身份：只接受发起者的回复
+                current_sender_id = str(event.get_sender_id())
+                if current_sender_id != initiator_id:
+                    # 不是发起者，忽略并继续等待
+                    controller.keep(timeout=60, reset_timeout=False)
+                    return
+
+                # 再次验证管理员权限（防止权限变更）
+                if not self._check_admin_permission(event):
+                    await event.send(event.plain_result("❌ 权限已变更，操作已取消"))
+                    controller.stop()
+                    return
+
                 user_input = event.message_str.strip()
                 if user_input == "0" or user_input.lower() == "q":
                     await event.send(event.plain_result("操作已取消"))
@@ -362,10 +382,10 @@ class PluginUploadPlugin(Star):
 
     @filter.command("插件安装", alias={"install_plugin", "plugin_install"})
     async def install_plugin_command(self, event: AstrMessageEvent, arg: str = ""):
-        """安装插件 (支持 ZIP/URL/本地路径)
+        """安装插件 (支持 ZIP 上传或 GitHub URL)
 
         Args:
-            arg: 可选参数，可以是 GitHub 链接或本地路径
+            arg: 可选参数，GitHub 仓库链接
         """
         if not self._check_admin_permission(event):
             await event.send(event.plain_result("仅管理员可以使用此功能"))
@@ -400,8 +420,7 @@ class PluginUploadPlugin(Star):
             await event.send(event.plain_result(
                 "请提供插件来源：\n"
                 "1. 发送 ZIP 文件的同时输入指令\n"
-                "2. 输入 GitHub 仓库链接\n"
-                "3. 输入本地插件目录路径"
+                "2. 输入 GitHub 仓库链接"
             ))
             return
 
