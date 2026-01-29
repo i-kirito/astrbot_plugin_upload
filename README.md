@@ -52,25 +52,25 @@
 
 ## 📝 版本历史
 
-### v1.3.5
-- [Security] **身份验证加固**：插件市场安装流程增加发起者身份验证，防止其他用户触发安装
-- [Security] **SSRF 防护**：URL 安装限制为受信任主机 (github.com, gitee.com)
-- [Fix] **变量初始化**：修复 `_fetch_remote_version` 中 `raw_url` 可能未定义的问题
-- [Optimize] **配置优化**：全面优化 `_conf_schema.json` 描述和提示
+### v1.3.5 (2026-1-29)
+- [Security] 插件市场安装流程增加发起者身份验证
+- [Security] URL 安装限制为受信任主机 (github.com, gitee.com)
+- [Fix] 修复 `_fetch_remote_version` 中变量未定义问题
+- [Optimize] 全面优化 `_conf_schema.json` 描述和提示
 
-### v1.3.2 ~ v1.3.3
+### v1.3.2 ~ v1.3.3 (2026-1-28)
 - [Remove] 移除 `/插件列表` 指令，功能整合至 `/插件市场`
-- [Remove] 移除本地绝对路径安装支持，专注网络和文件上传
+- [Remove] 移除本地绝对路径安装支持
 
-### v1.3.0 ~ v1.3.1
-- [Feat] **插件市场**：新增 `/插件市场` 指令，浏览并安装 i-kirito 的 GitHub 插件
+### v1.3.0 ~ v1.3.1 (2026-1-27)
+- [Feat] 新增 `/插件市场` 指令，浏览并安装 i-kirito 的 GitHub 插件
 - [Optimize] 美化 `/插件帮助` 输出格式
 
-### v1.2.0 ~ v1.2.2
+### v1.2.0 ~ v1.2.2 (2026-1-26)
 - [Feat] 重构指令系统，支持 GitHub URL 安装
 - [Feat] 新增 `/插件更新` 指令，支持 Git 自动拉取更新
 - [Optimize] `/插件列表` 后可直接回复序号安装
 
-### v1.0.0 ~ v1.1.1
-- [Feat] 初始版本，支持 ZIP 上传安装
+### v1.0.0 ~ v1.1.1 (2026-1-25)
+- [Init] 初始版本，支持 ZIP 上传安装
 - [Feat] 数据持久化分离，迁移至 `data` 目录
