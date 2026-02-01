@@ -425,7 +425,18 @@ class PluginUploadPlugin(Star):
             return
 
         if arg.startswith("http"):
-            # URL 安装
+            # URL 安装 - 添加域名白名单验证
+            from urllib.parse import urlparse
+            parsed = urlparse(arg)
+            allowed_domains = ["github.com", "gitee.com", "raw.githubusercontent.com"]
+
+            if parsed.hostname not in allowed_domains:
+                await event.send(event.plain_result(
+                    f"❌ 不受信任的域名: {parsed.hostname}\n"
+                    f"仅允许以下来源: {', '.join(allowed_domains)}"
+                ))
+                return
+
             await event.send(event.plain_result(f"🌐 正在从 URL 下载并安装: {arg}"))
             result = await self.installer.install_from_url(arg)
             await self._send_install_result(event, result)
@@ -581,6 +592,18 @@ class PluginUploadPlugin(Star):
 
         if not plugin_name:
             await event.send(event.plain_result("请提供要卸载的插件名称，例如：/卸载插件 my_plugin"))
+            return
+
+        # 路径安全校验：防止目录穿越攻击
+        # 只允许合法的插件名称（字母、数字、下划线、连字符）
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]+$', plugin_name):
+            await event.send(event.plain_result("❌ 插件名称包含非法字符，只允许字母、数字、下划线和连字符"))
+            return
+
+        # 检查是否包含路径分隔符或尝试穿越
+        if '/' in plugin_name or '\\' in plugin_name or '..' in plugin_name:
+            await event.send(event.plain_result("❌ 插件名称不能包含路径分隔符"))
             return
 
         await event.send(event.plain_result(f"正在卸载插件：{plugin_name}..."))
